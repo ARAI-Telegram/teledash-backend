@@ -442,7 +442,7 @@ If you use Teledash in your research, please cite:
 
 ```bibtex
 @software{teledash2025,
-author = {{Pustet, Milena and Illies, Yannis and Stanjek, Grischa and Mihaljević, Helena and Gregor, Weichbrodt}},
+author = {{Pustet, Milena and Illies, Yannis and Stanjek, Grischa and Mihaljević, Helena and Weichbrodt, Gregor}},
 title = {{Teledash}},
 url = {https://github.com/ARAI-Telegram/teledash-backend},
 version = {0.1.0},
