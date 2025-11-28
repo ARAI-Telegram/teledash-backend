@@ -1,0 +1,2 @@
+celery[redis]==5.2.3
+gcld3==3.0.13

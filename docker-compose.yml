@@ -1,0 +1,161 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
+    container_name: api
+    volumes:
+      - ./common:/app/common
+      - api-bashhistory:/commandhistory # Persist bash history
+      - api-data:/app/data # Docker volume for account data
+    env_file:
+      - .env
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      - elastic
+    ports:
+      - 8000:8000
+
+  worker-history:
+    build: &build
+      context: .
+      dockerfile: ./worker/Dockerfile
+    container_name: worker-history
+    volumes: &volumes
+      - ./common:/app/common
+      - worker-bashhistory:/commandhistory # Persist bash history
+      - tmp-files:/app/tmp # Docker volume for temporary files
+      - elastic-data:/app/elastic_data # Docker volume for elasticsearch data
+    env_file:
+      - .env
+    command: celery --app=worker.main worker --loglevel=INFO --queues=history --hostname=scraping-worker@%h --concurrency=1
+    depends_on:
+      - redis
+      - elastic
+
+  worker-live:
+    build: *build
+    container_name: worker-live
+    volumes: *volumes
+    env_file:
+      - .env
+    command: celery --app=worker.main worker --loglevel=INFO --queues=live --hostname=live-worker@%h --concurrency=${LIVE_CONCURRENCY}
+    depends_on:
+      - redis
+      - elastic
+
+  worker-live-msg-process:
+    build: *build
+    container_name: worker-live-msg-process
+    volumes: *volumes
+    env_file:
+      - .env
+    command: celery --app=worker.main worker --loglevel=INFO --queues=live-msg-process --hostname=live-process-worker@%h --concurrency=1
+    depends_on:
+      - redis
+      - elastic
+
+  worker-files-process:
+    build: *build
+    container_name: worker-files-process
+    volumes: *volumes
+    env_file:
+      - .env
+    command: celery --app=worker.main worker --loglevel=INFO --queues=files-process --hostname=files-process-worker@%h --concurrency=2
+    depends_on:
+      - redis
+      - elastic
+
+  worker-chat-updates:
+    build: *build
+    container_name: worker-chat-updates
+    volumes: *volumes
+    env_file:
+      - .env
+    command: celery --app=worker.main worker --loglevel=INFO --queues=chat-updates --hostname=chat-updates-worker@%h --concurrency=1
+    depends_on:
+      - redis
+      - elastic
+
+  worker-files-purge:
+    build: *build
+    container_name: worker-files-purge
+    volumes: *volumes
+    env_file:
+      - .env
+    command: celery --app=worker.main worker --loglevel=INFO --queues=files-purge --hostname=files-purge-worker@%h --concurrency=1
+    depends_on:
+      - redis
+      - elastic
+
+  worker-beat:
+    build: *build
+    container_name: worker-beat
+    volumes:
+      - ./common:/app/common
+      - worker-bashhistory:/commandhistory
+    env_file:
+      - .env
+    command: celery --app=worker.main beat
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    expose:
+      - 6379
+
+  # Flower - Celery monitoring (disabled by default)
+  # Uncomment to enable task monitoring at http://localhost:5555
+  # Requires FLOWER_USER and FLOWER_PASSWORD in .env
+  #flower:
+  #  image: mher/flower
+  #  container_name: flower
+  #  environment:
+  #    CELERY_BROKER_URL: redis://redis
+  #    CELERY_RESULT_BACKEND: redis://redis
+  #    FLOWER_BASIC_AUTH: ${FLOWER_USER}:${FLOWER_PASSWORD}
+  #  ports:
+  #    - 5555:5555
+  #  depends_on:
+  #    - redis
+
+  elastic:
+    build:
+      context: .
+      dockerfile: Dockerfile.elasticsearch
+    container_name: elastic
+    environment:
+      - cluster.name=es-docker-cluster
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - elastic-data:/usr/share/elasticsearch/data
+    # ports: # uncomment this in production if you need to access elasticsearch from outside (not recommended)
+    #  - 9200:9200
+
+  # Kibana - Elasticsearch UI (disabled by default for security)
+  # Uncomment to enable data exploration at http://localhost:5601
+  #kibana:
+  #  image: docker.elastic.co/kibana/kibana:8.14.3
+  #  container_name: kibana
+  #  environment:
+  #    - ELASTICSEARCH_HOSTS=${ES_SCHEME}://${ES_HOST}:${ES_PORT}
+  #  ports:
+  #    - 5601:5601
+  #  depends_on:
+  #    - elastic
+
+volumes:
+  worker-bashhistory:
+  api-bashhistory:
+  tmp-files:
+  elastic-data:
+  api-data:

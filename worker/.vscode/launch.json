@@ -1,0 +1,118 @@
+{
+  // Verwendet IntelliSense zum Ermitteln möglicher Attribute.
+  // Zeigen Sie auf vorhandene Attribute, um die zugehörigen Beschreibungen anzuzeigen.
+  // Weitere Informationen finden Sie unter https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Celery (history-queue)",
+      "type": "python",
+      "request": "launch",
+      "module": "celery",
+      // "program": "${file}",
+      "console": "integratedTerminal",
+      "args": [
+        "--app=worker.main",
+        "worker",
+        "--concurrency=1",
+        "--loglevel=INFO",
+        "--queues=history",
+        "--hostname=history-worker@%h",
+      ]
+    },
+    {
+      "name": "Celery (live-queue)",
+      "type": "python",
+      "request": "launch",
+      "module": "celery",
+      "console": "integratedTerminal",
+      "args": [
+        "--app=worker.main",
+        "worker",
+        "--concurrency=10",
+        "--loglevel=INFO",
+        "--queues=live",
+        "--hostname=live-worker@%h",
+      ]
+    },
+    {
+      "name": "Celery (live-msg-process-queue)",
+      "type": "python",
+      "request": "launch",
+      "module": "celery",
+      "console": "integratedTerminal",
+      "args": [
+        "--app=worker.main",
+        "worker",
+        "--concurrency=1",
+        "--loglevel=INFO",
+        "--queues=live-msg-process",
+        "--hostname=live-msg-process-worker@%h",
+      ]
+    },
+    {
+      "name": "Celery (update-chats-queue)",
+      "type": "python",
+      "request": "launch",
+      "module": "celery",
+      "console": "integratedTerminal",
+      "args": [
+        "--app=worker.main",
+        "worker",
+        "--concurrency=1",
+        "--loglevel=INFO",
+        "--queues=chat-updates",
+        "--hostname=update-chats-worker@%h",
+      ]
+    },
+    {
+      "name": "Celery (files-purge-queue)",
+      "type": "python",
+      "request": "launch",
+      "module": "celery",
+      // "program": "${file}",
+      "console": "integratedTerminal",
+      "args": [
+        "--app=worker.main",
+        "worker",
+        "--loglevel=INFO",
+        "--queues=files-purge",
+        "--concurrency=1",
+        "--hostname=files-purge-worker@%h",
+        "--pool=prefork",
+        // "-f files.log"
+      ]
+    },
+    {
+      "name": "Celery (files-process-queue)",
+      "type": "python",
+      "request": "launch",
+      "module": "celery",
+      // "program": "${file}",
+      "console": "integratedTerminal",
+      "args": [
+        "--app=worker.main",
+        "worker",
+        "--loglevel=INFO",
+        "--queues=files-process",
+        "--concurrency=2",
+        "--hostname=files-process-worker@%h",
+        "--pool=prefork",
+        // "-f process.log"
+      ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Celery workers",
+      "configurations": [
+        "Celery (history-queue)",
+        "Celery (live-queue)",
+        "Celery (live-msg-process-queue)",
+        "Celery (files-process-queue)",
+        "Celery (files-purge-queue)",
+        "Celery (update-chats-queue)"
+      ]
+    }
+  ]
+}

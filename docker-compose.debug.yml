@@ -1,0 +1,91 @@
+# VSCode remote container tutorials:
+# https://code.visualstudio.com/docs/remote/create-dev-container#_set-up-a-folder-to-run-in-a-container
+# https://code.visualstudio.com/remote/advancedcontainers/connect-multiple-containers
+
+# "ports" vs. "expose": https://stackoverflow.com/a/40801773/5732518
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
+    container_name: api
+    volumes:
+      - ./common:/app/common
+      - ./api:/app
+      - api-bashhistory:/commandhistory # Persist bash history
+      - ./api/data:/app/data # Persist account data
+    env_file:
+      - .env
+    command: tail -f /dev/null # keep shell attached
+    depends_on:
+      - elastic
+
+  worker:
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
+    container_name: worker
+    volumes:
+      - ./common:/app/common
+      - ./worker:/app
+      - worker-bashhistory:/commandhistory # Persist bash history
+      - ./tmp:/app/tmp
+    env_file:
+      - .env
+    command: tail -f /dev/null # keep shell attached
+    depends_on:
+      - redis
+      - elastic
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - 6379:6379
+
+  flower:
+    image: mher/flower
+    container_name: flower
+    environment:
+      CELERY_BROKER_URL: redis://redis
+      CELERY_RESULT_BACKEND: redis://redis
+      FLOWER_BASIC_AUTH: ${FLOWER_USER}:${FLOWER_PASSWORD}
+    ports:
+      - 5555:5555
+    depends_on:
+      - redis
+
+  elastic:
+    build:
+      context: .
+      dockerfile: Dockerfile.elasticsearch
+    container_name: elastic
+    environment:
+      - cluster.name=es-docker-cluster
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - ./elastic_data:/usr/share/elasticsearch/data
+    ports:
+      - 9200:9200
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.14.3
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=${ES_SCHEME}://${ES_HOST}:${ES_PORT}
+    ports:
+      - 5601:5601
+    depends_on:
+      - elastic
+
+volumes:
+  worker-bashhistory:
+  api-bashhistory:

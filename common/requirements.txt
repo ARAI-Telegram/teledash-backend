@@ -1,0 +1,6 @@
+boto3>=1.26.0
+elasticsearch==8.19.1 # TODO: major update from 8.x to 9.x
+Kurigram==2.2.15
+pydantic==2.11.4
+pydantic-settings==2.11.0
+TgCrypto==1.2.3
