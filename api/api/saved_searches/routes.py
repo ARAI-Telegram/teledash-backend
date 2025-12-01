@@ -62,7 +62,7 @@ def get_saved_searches_router() -> APIRouter:
         existing_saved_searches = (
             cast(List[Dict[str, Any]], account.saved_searches) or []
         )
-        if search.params.search_type.is_semantic():
+        if MessageSearchType(search.params.search_type).is_semantic():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Semantic search is not yet supported for saved searches.",
