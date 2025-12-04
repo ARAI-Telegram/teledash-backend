@@ -25,13 +25,13 @@ Teledash consists of three separate repositories:
 
 - [Frontend](https://github.com/ARAI-Telegram/teledash-frontend)** - Web interface
 - Backend (this repository) - Core API and worker services for data collection and management
-- [Processing Backend](https://github.com/ARAI-Telegram/teledash-backend-processing)(optional) - ML-powered services (semantic search, transcription, classification)
+- [Processing Backend](https://github.com/ARAI-Telegram/teledash-backend-processing) (optional) - ML-powered services (semantic search, transcription, classification)
 
 **Minimum setup:** Frontend + Backend. The Processing Backend is entirely optional, and individual services within it can be enabled or disabled independently.
 
 All components run in Docker containers. The backend uses Celery for task orchestration (scraping, processing), Elasticsearch for storing text data and metadata, and S3-compatible object storage for media files (see [Object Storage Setup](#object-storage-setup)).
 
-![Architecture Diagram](./architecture.png)
+![Architecture Diagram](/assets/architecture.png)
 
 ## Configuration
 
@@ -447,4 +447,9 @@ title = {{Teledash}},
 url = {https://github.com/ARAI-Telegram/teledash-backend},
 version = {0.1.0},
 }
+```
+
+## Funding
+
+![DATIpilot Logo](/assets/DATIpilot_Logo.png)
 
