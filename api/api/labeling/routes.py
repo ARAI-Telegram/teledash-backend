@@ -11,7 +11,7 @@ from api.labeling.models import LabeledDataIn, LabeledDataOut, MessageForLabelin
 from common.utils import naive_utcnow
 
 
-def get_labeled_data_router():
+def get_labeling_router():
     router = APIRouter()
     current_active_verified_user = get_current_active_verified_user()
 

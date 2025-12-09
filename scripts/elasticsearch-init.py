@@ -195,6 +195,17 @@ def create_initial_mappings():
                 }
             }
         },
+        "labeled_data": {
+            "mappings": {
+                "properties": {
+                    "message_id": {"type": "keyword"},
+                    "text": {"type": "text"},
+                    "label_classifier": {"type": "integer"},
+                    "label_manual": {"type": "integer"},
+                    "created_at": {"type": "date"},
+                }
+            }
+        },
     }
 
     settings = {"analysis": {"char_filter": {"html_strip": {"type": "html_strip"}}}}
