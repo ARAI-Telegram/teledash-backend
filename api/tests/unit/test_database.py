@@ -12,11 +12,11 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from api.database.database import ChatsCollection, Database, StatsEntry
 from elastic_transport import ApiResponseMeta, HttpHeaders, NodeConfig
 from elasticsearch import NotFoundError
 from elasticsearch.dsl import Q
 
+from api.database.database import ChatsCollection, Database, StatsEntry
 from common.database.models.chat import ChatOut, ChatType
 
 
@@ -401,7 +401,7 @@ class TestCollectionDeleteOne:
         ) as mock_find_one:
             mock_find_one.return_value = doc_to_delete
 
-            result = await collection.delete_by_id("123456789")
+            result = await collection.delete_one("123456789")
 
             assert result is not None
             assert result.id == 123456789
@@ -411,7 +411,7 @@ class TestCollectionDeleteOne:
 
     @pytest.mark.asyncio
     async def test_delete_one_not_found(self, collection_with_mock_client):
-        """Test delete_by_id returns None when document not found."""
+        """Test delete_one returns None when document not found."""
         collection, mock_client = collection_with_mock_client
 
         with patch.object(
@@ -419,7 +419,7 @@ class TestCollectionDeleteOne:
         ) as mock_find_one:
             mock_find_one.return_value = None
 
-            result = await collection.delete_by_id("nonexistent")
+            result = await collection.delete_one("nonexistent")
 
             assert result is None
             mock_client.delete.assert_not_called()
@@ -428,7 +428,7 @@ class TestCollectionDeleteOne:
     async def test_delete_one_handles_not_found_error(
         self, collection_with_mock_client
     ):
-        """Test delete_by_id handles NotFoundError gracefully."""
+        """Test delete_one handles NotFoundError gracefully."""
         collection, mock_client = collection_with_mock_client
 
         doc_to_delete = ChatOut(
@@ -458,7 +458,7 @@ class TestCollectionDeleteOne:
         ) as mock_find_one:
             mock_find_one.return_value = doc_to_delete
 
-            result = await collection.delete_by_id("123456789")
+            result = await collection.delete_one("123456789")
 
             assert result is None
 
@@ -529,8 +529,8 @@ class TestCollectionGetTopFieldValues:
             assert result == []
 
 
-class TestCollectionDeleteByQuery:
-    """Test cases for Collection.delete_by_query method."""
+class TestCollectionDeleteAll:
+    """Test cases for Collection.delete_all method."""
 
     @pytest.fixture
     def collection_with_mock_client(self):
@@ -540,40 +540,32 @@ class TestCollectionDeleteByQuery:
         return collection, mock_client
 
     @pytest.mark.asyncio
-    async def test_delete_by_query_without_query(self, collection_with_mock_client):
-        """Test delete_by_query deletes all documents and returns count."""
+    async def test_delete_all_without_query(self, collection_with_mock_client):
+        """Test delete_all deletes all documents."""
         collection, mock_client = collection_with_mock_client
 
         with patch("api.database.database.AsyncSearch") as mock_search_class:
             mock_search = MagicMock()
             mock_search.query.return_value = mock_search
-            # Mock response object with deleted attribute
-            mock_response = MagicMock()
-            mock_response.deleted = 5
-            mock_search.delete = AsyncMock(return_value=mock_response)
+            mock_search.delete = AsyncMock()
             mock_search_class.return_value = mock_search
 
-            result = await collection.delete_by_query()
+            await collection.delete_all()
 
-            assert result == 5
             mock_search.delete.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_delete_by_query_with_query(self, collection_with_mock_client):
-        """Test delete_by_query deletes documents matching query and returns count."""
+    async def test_delete_all_with_query(self, collection_with_mock_client):
+        """Test delete_all deletes documents matching query."""
         collection, mock_client = collection_with_mock_client
 
         with patch("api.database.database.AsyncSearch") as mock_search_class:
             mock_search = MagicMock()
             mock_search.query.return_value = mock_search
-            # Mock response object with deleted attribute
-            mock_response = MagicMock()
-            mock_response.deleted = 3
-            mock_search.delete = AsyncMock(return_value=mock_response)
+            mock_search.delete = AsyncMock()
             mock_search_class.return_value = mock_search
 
-            result = await collection.delete_by_query(query=Q("term", type="CHANNEL"))
+            await collection.delete_all(query=Q("term", type="CHANNEL"))
 
-            assert result == 3
             mock_search.query.assert_called()
             mock_search.delete.assert_called_once()
