@@ -299,7 +299,7 @@ class Collection(Generic[T]):
             logger.warning(f"Document with ID {doc_id} not updated")
             return None
 
-    async def delete_all(self, query: Optional[Query] = None) -> None:
+    async def delete_by_query(self, query: Optional[Query] = None) -> None:
         """
         Delete all documents from the Elasticsearch index if no query is provided,
         or delete documents matching the query if a query is provided.
@@ -389,7 +389,7 @@ class Collection(Generic[T]):
             )
             return []
 
-    async def delete_one(
+    async def delete_by_id(
         self, doc_id: str, refresh: Optional[bool] = True
     ) -> Optional[T]:
         """

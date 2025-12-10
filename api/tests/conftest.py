@@ -27,7 +27,6 @@ from common.database.models.client import ClientOut
 from common.database.models.message import MessageOut
 from common.database.models.user import UserOut
 
-
 # =============================================================================
 # Mock Account Fixtures
 # =============================================================================
@@ -74,10 +73,9 @@ def mock_es_client():
     mock_client = AsyncMock()
 
     # Mock common methods
-    mock_client.search = AsyncMock(return_value={
-        "hits": {"hits": [], "total": {"value": 0}},
-        "aggregations": {}
-    })
+    mock_client.search = AsyncMock(
+        return_value={"hits": {"hits": [], "total": {"value": 0}}, "aggregations": {}}
+    )
     mock_client.index = AsyncMock(return_value={"_id": "test_id", "result": "created"})
     mock_client.update = AsyncMock(return_value={"result": "updated"})
     mock_client.delete = AsyncMock(return_value={"result": "deleted"})
@@ -117,8 +115,8 @@ def mock_database(mock_es_client):
             collection.count = AsyncMock(return_value=0)
             collection.insert_one = AsyncMock(return_value="test_id")
             collection.update_one = AsyncMock(return_value=None)
-            collection.delete_one = AsyncMock(return_value=None)
-            collection.delete_all = AsyncMock()
+            collection.delete_by_id = AsyncMock(return_value=None)
+            collection.delete_by_query = AsyncMock()
             collection.bulk_write = AsyncMock(return_value=(0, []))
             collection.get_top_field_values = AsyncMock(return_value=[])
 
@@ -157,17 +155,19 @@ def sample_chat_list(sample_chat):
     """Create a list of sample chats for testing."""
     chats = [sample_chat]
     for i in range(1, 5):
-        chats.append(ChatOut(
-            id=123456789 + i,
-            type=ChatType.CHANNEL if i % 2 == 0 else ChatType.SUPERGROUP,
-            title=f"Test Channel {i}",
-            username=f"test_channel_{i}",
-            description=f"Test channel {i} description",
-            members_count=1000 * i,
-            scraped_by="test_client_id",
-            added_at=datetime(2024, 1, 1, 0, 0, 0),
-            updated_at=datetime(2024, 1, 1, 0, 0, 0),
-        ))
+        chats.append(
+            ChatOut(
+                id=123456789 + i,
+                type=ChatType.CHANNEL if i % 2 == 0 else ChatType.SUPERGROUP,
+                title=f"Test Channel {i}",
+                username=f"test_channel_{i}",
+                description=f"Test channel {i} description",
+                members_count=1000 * i,
+                scraped_by="test_client_id",
+                added_at=datetime(2024, 1, 1, 0, 0, 0),
+                updated_at=datetime(2024, 1, 1, 0, 0, 0),
+            )
+        )
     return chats
 
 
@@ -223,16 +223,13 @@ def mock_app(mock_database, mock_account):
 
     # Override the authentication dependency
 
-
     # Store original dependencies
     from api.database import get_database
-    from api.accounts.auth import get_current_active_verified_user
 
     app.dependency_overrides[get_database] = get_mock_database
 
     # We need to override the dependency returned by get_current_active_verified_user
     # This is tricky because it returns a dependency function
-
 
     yield app
 
@@ -244,8 +241,7 @@ def mock_app(mock_database, mock_account):
 async def async_client(mock_app):
     """Create an async HTTP client for testing FastAPI endpoints."""
     async with AsyncClient(
-        transport=ASGITransport(app=mock_app),
-        base_url="http://test"
+        transport=ASGITransport(app=mock_app), base_url="http://test"
     ) as client:
         yield client
 
@@ -258,6 +254,7 @@ async def async_client(mock_app):
 @pytest.fixture
 def mock_es_search_response():
     """Create a mock Elasticsearch search response."""
+
     def _create_response(hits=None, total=0, aggregations=None):
         if hits is None:
             hits = []
@@ -307,10 +304,15 @@ def isolate_env_vars():
     # Backup relevant env vars
     env_backup = {}
     test_env_vars = [
-        "ES_HOST", "ES_PORT", "ES_SCHEME",
-        "STORAGE_PROVIDER", "STORAGE_ENDPOINT",
-        "STORAGE_ACCESS_KEY", "STORAGE_SECRET_KEY",
-        "JWT_SECRET", "JWT_LIFETIME_SECONDS",
+        "ES_HOST",
+        "ES_PORT",
+        "ES_SCHEME",
+        "STORAGE_PROVIDER",
+        "STORAGE_ENDPOINT",
+        "STORAGE_ACCESS_KEY",
+        "STORAGE_SECRET_KEY",
+        "JWT_SECRET",
+        "JWT_LIFETIME_SECONDS",
     ]
 
     for var in test_env_vars:

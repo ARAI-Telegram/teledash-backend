@@ -14,8 +14,8 @@ def get_evaluation_router():
 
     @router.get(
         "/evaluation",
-        description="Return classification evaluation results",
         tags=["evaluation"],
+        description="Return classification evaluation results",
         response_model=EvaluationResult,
         response_model_exclude_none=True,
     )
@@ -30,7 +30,7 @@ def get_evaluation_router():
         recommendations based on data quantity and model performance.
 
         Returns:
-            EvaluationResult with metrics, data count, and recommendations
+            EvaluationResult with metrics, sample assessment, and recommendations
 
         Raises:
             404: No labeled data found

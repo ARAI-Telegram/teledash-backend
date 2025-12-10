@@ -504,24 +504,6 @@ class TestCreateRecommendation:
             or "adjusting" in recommendation.metrics_interpretation.lower()
         )
 
-    def test_no_retraining_recommendation_good_metrics(self):
-        """Test no retraining recommendation when both metrics >= 0.5."""
-        metrics = EvaluationMetrics(
-            accuracy=0.75,
-            precision=0.7,
-            recall=0.72,
-            f1_score=0.71,
-            true_positives=72,
-            false_negatives=28,
-            true_negatives=110,
-            false_positives=31,
-        )
-
-        recommendation = create_recommendation(241, metrics)
-
-        # Should not suggest retraining
-        # Just check the recommendation doesn't fail
-
     def test_return_structure(self):
         """Test that returned object has correct structure."""
         metrics = EvaluationMetrics(
@@ -590,7 +572,7 @@ class TestGetAllLabeledData:
             assert result[0].label_manual == 1
 
     @pytest.mark.asyncio
-    async def test_filters_missing_classifier_label(self, capsys):
+    async def test_filters_missing_classifier_label(self, caplog):
         """Test that records without classifier label are filtered out."""
         with patch("api.classifier_evaluation.evaluation.Database") as mock_db_class:
             mock_db = Mock()
@@ -611,13 +593,11 @@ class TestGetAllLabeledData:
             assert result[0].message_id == "msg1"
             assert result[1].message_id == "msg3"
 
-            # Check warning was printed
-            captured = capsys.readouterr()
-            assert "Warning" in captured.out
-            assert "1 record(s) skipped" in captured.out
+            # Check warning was logged
+            assert "1 record(s) skipped" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_filters_missing_manual_label(self, capsys):
+    async def test_filters_missing_manual_label(self, caplog):
         """Test that records without manual label are filtered out."""
         with patch("api.classifier_evaluation.evaluation.Database") as mock_db_class:
             mock_db = Mock()
@@ -638,13 +618,11 @@ class TestGetAllLabeledData:
             assert result[0].message_id == "msg1"
             assert result[1].message_id == "msg3"
 
-            # Check warning was printed
-            captured = capsys.readouterr()
-            assert "Warning" in captured.out
-            assert "1 record(s) skipped" in captured.out
+            # Check warning was logged
+            assert "1 record(s) skipped" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_filters_both_labels_missing(self, capsys):
+    async def test_filters_both_labels_missing(self, caplog):
         """Test that records without both labels are filtered out."""
         with patch("api.classifier_evaluation.evaluation.Database") as mock_db_class:
             mock_db = Mock()
@@ -662,11 +640,10 @@ class TestGetAllLabeledData:
             result = await get_all_labeled_data()
 
             assert len(result) == 2
-            captured = capsys.readouterr()
-            assert "1 record(s) skipped" in captured.out
+            assert "1 record(s) skipped" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_multiple_incomplete_records(self, capsys):
+    async def test_multiple_incomplete_records(self, caplog):
         """Test with multiple incomplete records."""
         with patch("api.classifier_evaluation.evaluation.Database") as mock_db_class:
             mock_db = Mock()
@@ -686,11 +663,10 @@ class TestGetAllLabeledData:
             result = await get_all_labeled_data()
 
             assert len(result) == 2  # Only msg1 and msg5 are complete
-            captured = capsys.readouterr()
-            assert "3 record(s) skipped" in captured.out
+            assert "3 record(s) skipped" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_empty_database(self, capsys):
+    async def test_empty_database(self, caplog):
         """Test with no labeled data in database."""
         with patch("api.classifier_evaluation.evaluation.Database") as mock_db_class:
             mock_db = Mock()
@@ -703,12 +679,11 @@ class TestGetAllLabeledData:
             assert len(result) == 0
             assert result == []
 
-            # No warning should be printed when no data
-            captured = capsys.readouterr()
-            assert "Warning" not in captured.out
+            # No warning should be logged when no data
+            assert "skipped" not in caplog.text
 
     @pytest.mark.asyncio
-    async def test_all_incomplete_records(self, capsys):
+    async def test_all_incomplete_records(self, caplog):
         """Test when all records are incomplete."""
         with patch("api.classifier_evaluation.evaluation.Database") as mock_db_class:
             mock_db = Mock()
@@ -725,12 +700,11 @@ class TestGetAllLabeledData:
 
             await get_all_labeled_data()
 
-            captured = capsys.readouterr()
-            assert "3 record(s) skipped" in captured.out
-            assert "Total records: 3, Usable: 0" in captured.out
+            assert "3 record(s) skipped" in caplog.text
+            assert "Total records: 3, Usable: 0" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_warning_message_format(self, capsys):
+    async def test_warning_message_format(self, caplog):
         """Test that warning message has correct format."""
         with patch("api.classifier_evaluation.evaluation.Database") as mock_db_class:
             mock_db = Mock()
@@ -746,14 +720,12 @@ class TestGetAllLabeledData:
 
             await get_all_labeled_data()
 
-            captured = capsys.readouterr()
-            assert "Warning:" in captured.out
-            assert "Total records: 2" in captured.out
-            assert "Usable: 1" in captured.out
+            assert "Total records: 2" in caplog.text
+            assert "Usable: 1" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_no_warning_when_all_complete(self, capsys):
-        """Test that no warning is printed when all records are complete."""
+    async def test_no_warning_when_all_complete(self, caplog):
+        """Test that no warning is logged when all records are complete."""
         with patch("api.classifier_evaluation.evaluation.Database") as mock_db_class:
             mock_db = Mock()
             mock_db_class.return_value = mock_db
@@ -769,8 +741,7 @@ class TestGetAllLabeledData:
             result = await get_all_labeled_data()
 
             assert len(result) == 2
-            captured = capsys.readouterr()
-            assert "Warning" not in captured.out
+            assert "skipped" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_label_values_preserved(self):

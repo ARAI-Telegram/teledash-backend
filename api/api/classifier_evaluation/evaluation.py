@@ -1,3 +1,4 @@
+import logging
 from typing import List
 
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
@@ -9,6 +10,8 @@ from api.classifier_evaluation.models import (
     Recommendation,
 )
 from api.database.database import Database
+
+logger = logging.getLogger(__name__)
 
 
 async def get_all_labeled_data() -> List[EvaluationDate]:
@@ -37,8 +40,8 @@ async def get_all_labeled_data() -> List[EvaluationDate]:
             incomplete_records += 1
 
     if incomplete_records > 0:
-        print(
-            f"Warning: {incomplete_records} record(s) skipped due to missing labels. "
+        logger.warning(
+            f"{incomplete_records} record(s) skipped due to missing labels. "
             f"Total records: {len(labeled_data_out)}, Usable: {len(evaluation_data)}"
         )
 
@@ -94,35 +97,35 @@ def get_evaluation_metrics(y_true: List[int], y_pred: List[int]) -> EvaluationMe
 def create_recommendation(
     num_labeled_data: int, evaluation_metrics: EvaluationMetrics
 ) -> Recommendation:
-    """Create recommendations based on labeled data count and evaluation metrics.
+    """Create recommendations based on labeled sample distribution and evaluation metrics.
 
     Args:
         num_labeled_data: Number of labeled data points available
         evaluation_metrics: Calculated evaluation metrics (accuracy, precision, recall, f1)
 
     Returns:
-        Recommendation object with data count and metrics interpretation suggestions
+        Recommendation object with data assessment and metrics interpretation suggestions
     """
-    # Check per-class data counts
+    # Check per-class sample size
     num_class_1 = evaluation_metrics.true_positives + evaluation_metrics.false_negatives
     num_class_0 = evaluation_metrics.true_negatives + evaluation_metrics.false_positives
 
     # Sample assessment recommendations
     sample_parts = []
 
-    # Check if either class has critically insufficient data (< 20 samples)
+    # Check if either class has critically insufficient data (< 30 samples)
     if num_class_1 < 30 or num_class_0 < 30:
         sample_parts.append(
             "⚠️ WARNING: Very few labeled samples detected! "
             f"Current distribution: {num_class_1} positive class samples, {num_class_0} negative class samples. "
-            "The metrics below are NOT RELIABLE and should NOT be used for decision-making. "
+            "The metrics above are NOT RELIABLE and should NOT be used for decision-making. "
             "Please label significantly more data before drawing conclusions."
         )
     # Check if either class has insufficient data (< 100 samples)
     elif num_class_1 < 100 or num_class_0 < 100:
         sample_parts.append(
             "As a rule of thumb, it is generally recommended to have at least 100 labeled samples for each class. "
-            "Otherwise, the metrics shown below and their interpretation should be treated with caution, as small sample sizes lead to unreliable estimates."
+            "Otherwise, the metrics shown above and their interpretation should be treated with caution, as small sample sizes lead to unreliable estimates."
         )
         sample_parts.append(
             f"Current distribution: {num_class_1} positive class samples, {num_class_0} negative class samples."
@@ -206,7 +209,7 @@ def create_recommendation(
     # Overall recommendation
     if precision < 0.5 or recall < 0.5:
         metrics_parts.append(
-            "Consider retraining or adjusting the classification threshold."
+            "Consider model retraining or adjusting the classification threshold."
         )
 
     metrics_interpretation = " ".join(metrics_parts)
