@@ -187,6 +187,7 @@ def create_initial_mappings():
                     "session_hash": {
                         "type": "keyword"
                     },  # we don't want a limit of 256 bytes here
+                    "title": {"type": "keyword"},
                     "user_id": {"type": "long"},
                     "created_at": {"type": "date"},
                     "updated_at": {"type": "date"},
