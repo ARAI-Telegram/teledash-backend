@@ -299,17 +299,29 @@ class Collection(Generic[T]):
             logger.warning(f"Document with ID {doc_id} not updated")
             return None
 
-    async def delete_by_query(self, query: Optional[Query] = None) -> None:
+    async def delete_by_query(self, query: Optional[Query] = None) -> int:
         """
-        Delete all documents from the Elasticsearch index if no query is provided,
-        or delete documents matching the query if a query is provided.
+        Delete documents matching the query. If no query is provided, deletes all documents.
+
+        Args:
+            query: Elasticsearch query to match documents for deletion.
+                   If None, defaults to match_all (deletes all documents).
+
+        Returns:
+            Number of documents deleted
         """
         if query is None:
             query = Q("match_all")  # defaults to "match_all" if no query is provided
 
         try:
             s = AsyncSearch(using=self.client, index=self.name).query(query)
-            await s.delete()
+            response = await s.delete()
+            # The delete() method returns an ObjectApiResponse with 'deleted' count
+            if hasattr(response, "deleted"):
+                deleted_count = response.deleted
+            else:
+                deleted_count = 0
+            return deleted_count
         except Exception as e:
             logger.error(f"Error deleting documents: {e}", exc_info=True)
             raise
