@@ -17,15 +17,15 @@ def get_labeling_router():
 
     @router.get(
         "/labeling",
-        description="Get messages for manual labeling",
+        description="Get a message for manual labeling",
         tags=["labeling"],
-        response_model=MessageForLabeling,
+        response_model=Optional[MessageForLabeling],
     )
     async def get_labeling_data(
         seed: Optional[int] = None,
         account: Account = Depends(current_active_verified_user),
         database: Database = Depends(get_database),
-    ) -> MessageForLabeling:
+    ) -> Optional[MessageForLabeling]:
         """
         Get a random message that needs manual labeling (has classifier score, not yet labeled).
         Messages are sampled to maintain a 70:30 distribution of negative:positive classes.
@@ -34,13 +34,7 @@ def get_labeling_router():
             seed: Optional seed for reproducible random sampling
         """
         try:
-            message = await get_message_for_labeling(seed=seed)
-            if message is None:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No unlabeled messages available",
-                )
-            return message
+            return await get_message_for_labeling(seed=seed)
         except HTTPException:
             raise
         except Exception as e:
