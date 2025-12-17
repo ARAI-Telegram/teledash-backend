@@ -35,8 +35,6 @@ def get_labeling_router():
         """
         try:
             return await get_message_for_labeling(seed=seed)
-        except HTTPException:
-            raise
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
