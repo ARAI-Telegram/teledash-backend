@@ -186,9 +186,17 @@ def get_saved_searches_router() -> APIRouter:
 
             message_filter_unread = parse_message_filter_manual(**saved_params)
 
-            count_unread = await database.messages.count(
-                search_query=message_search_query, filter=message_filter_unread
-            )
+            try:
+                count_unread = await database.messages.count(
+                    search_query=message_search_query, filter=message_filter_unread
+                )
+            except NotFoundError:
+                count_unread = 0
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"An error occurred while counting messages: {e}",
+                )
 
             messages_count[saved_search["id"]] = MessagesCount(
                 count_total=count_total, count_unread=count_unread
