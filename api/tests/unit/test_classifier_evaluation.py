@@ -1,7 +1,6 @@
 from unittest.mock import Mock, patch
 
 import pytest
-
 from api.classifier_evaluation.evaluation import (
     create_recommendation,
     get_all_labeled_data,
@@ -844,14 +843,6 @@ class TestGetEvaluationResults:
 
         assert result.num_labeled_data == 2
         assert result.metrics.accuracy == 1.0
-
-    @pytest.mark.asyncio
-    async def test_empty_data_raises_error(self):
-        """Test that empty data raises ValueError."""
-        with pytest.raises(ValueError) as exc_info:
-            await get_evaluation_results([])
-
-        assert "No data provided for evaluation" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_recommendation_included(self):

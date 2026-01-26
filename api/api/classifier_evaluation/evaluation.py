@@ -230,12 +230,7 @@ async def get_evaluation_results(
 
     Returns:
         EvaluationResult object with metrics, data count, and recommendations
-
-    Raises:
-        ValueError: If no data is provided for evaluation
     """
-    if not data:
-        raise ValueError("No data provided for evaluation")
     y_true = [item.label_manual for item in data]  # list of true labels (0 or 1)
     y_pred = [
         item.label_classifier for item in data

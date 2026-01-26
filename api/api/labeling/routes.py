@@ -33,13 +33,7 @@ def get_labeling_router():
         Args:
             seed: Optional seed for reproducible random sampling
         """
-        try:
-            return await get_message_for_labeling(seed=seed)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error fetching messages for labeling: {str(e)}",
-            )
+        return await get_message_for_labeling(seed=seed)
 
     @router.post(
         "/labeling",
@@ -54,70 +48,49 @@ def get_labeling_router():
         database: Database = Depends(get_database),
     ) -> LabeledDataOut:
         """Submit a manual label for a message."""
-        try:
-            # Check if already exists
-            existing = await database.labeled_data.find_one(
-                filter=Q("term", message_id=data.message_id)
+        # Check if already exists
+        existing = await database.labeled_data.find_one(
+            filter=Q("term", message_id=data.message_id)
+        )
+
+        if existing:
+            # Update existing
+            update_doc = {"label_manual": data.label_manual}
+            updated = await database.labeled_data.update_one(
+                query=Q("term", message_id=data.message_id), update=update_doc
             )
-
-            if existing:
-                # Update existing
-                update_doc = {"label_manual": data.label_manual}
-                updated = await database.labeled_data.update_one(
-                    query=Q("term", message_id=data.message_id), update=update_doc
-                )
-                if not updated:
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Failed to update labeled data",
-                    )
-                return updated
-            else:
-                # Fetch message data from messages index
-                message = await database.messages.find_one(
-                    filter=Q("term", _id=data.message_id)
-                )
-                if not message:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail=f"Message {data.message_id} not found",
-                    )
-
-                # Get text and classifier label from the message
-                text = message.text or message.caption or ""
-                label_classifier = None
-                if (
-                    hasattr(message, "classification_score_pos")
-                    and message.classification_score_pos is not None
-                ):
-                    label_classifier = score_to_label(message.classification_score_pos)
-
-                # Create new labeled data
-                doc = {
-                    "message_id": data.message_id,
-                    "text": text,
-                    "label_classifier": label_classifier,
-                    "label_manual": data.label_manual,
-                    "created_at": naive_utcnow(),
-                }
-                await database.labeled_data.insert_one(document=doc, id=data.message_id)
-
-                created = await database.labeled_data.find_one(
-                    filter=Q("term", message_id=data.message_id)
-                )
-                if not created:
-                    raise HTTPException(
-                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Failed to retrieve created labeled data",
-                    )
-                return created
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error submitting label: {str(e)}",
+            return updated if updated else existing
+        else:
+            # Fetch message data from messages index
+            message = await database.messages.find_one(
+                filter=Q("term", _id=data.message_id)
             )
+            if not message:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Message {data.message_id} not found",
+                )
+
+            # Get text and classifier label from the message
+            text = message.text or message.caption or ""
+            label_classifier = None
+            if (
+                hasattr(message, "classification_score_pos")
+                and message.classification_score_pos is not None
+            ):
+                label_classifier = score_to_label(message.classification_score_pos)
+
+            # Create new labeled data
+            doc = {
+                "message_id": data.message_id,
+                "text": text,
+                "label_classifier": label_classifier,
+                "label_manual": data.label_manual,
+                "created_at": naive_utcnow(),
+            }
+            await database.labeled_data.insert_one(document=doc, id=data.message_id)
+
+            # Return the created document (no need to query it back)
+            return LabeledDataOut(**doc)
 
     return router

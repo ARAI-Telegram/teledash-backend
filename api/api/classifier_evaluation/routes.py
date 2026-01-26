@@ -33,32 +33,19 @@ def get_evaluation_router():
             EvaluationResult with metrics, sample assessment, and recommendations
 
         Raises:
-            404: No labeled data found
-            500: Error during evaluation
+            400: No labeled data available for evaluation
         """
-        try:
-            # Fetch all labeled data
-            labeled_data = await get_all_labeled_data()
+        # Fetch all labeled data
+        labeled_data = await get_all_labeled_data()
 
-            if not labeled_data:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="No labeled data found with both manual and classifier labels",
-                )
-
-            # Calculate evaluation metrics
-            evaluation_result = await get_evaluation_results(labeled_data)
-            return evaluation_result
-
-        except ValueError as e:
+        if not labeled_data:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e),
+                detail="No labeled data available for evaluation. Please label some messages first using the /labeling endpoint.",
             )
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error during evaluation: {str(e)}",
-            )
+
+        # Calculate evaluation metrics
+        evaluation_result = await get_evaluation_results(labeled_data)
+        return evaluation_result
 
     return router
