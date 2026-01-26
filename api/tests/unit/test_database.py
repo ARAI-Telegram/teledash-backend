@@ -12,11 +12,16 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from api.database.database import ChatsCollection, Database, StatsEntry
 from elastic_transport import ApiResponseMeta, HttpHeaders, NodeConfig
 from elasticsearch import NotFoundError
 from elasticsearch.dsl import Q
 
+from api.database.database import (
+    ChatsCollection,
+    Database,
+    StatsEntry,
+    UpdateTargetNotFoundError,
+)
 from common.database.models.chat import ChatOut, ChatType
 
 
@@ -344,7 +349,7 @@ class TestCollectionUpdateOne:
 
     @pytest.mark.asyncio
     async def test_update_one_not_found(self, collection_with_mock_client):
-        """Test update_one raises DocumentNotFoundError when document not found."""
+        """Test update_one raises UpdateTargetNotFoundError when document not found."""
         collection, mock_client = collection_with_mock_client
 
         mock_search_response = MagicMock()
@@ -356,7 +361,7 @@ class TestCollectionUpdateOne:
             mock_search.execute = AsyncMock(return_value=mock_search_response)
             mock_search_class.return_value = mock_search
 
-            with pytest.raises(Exception) as exc_info:
+            with pytest.raises(UpdateTargetNotFoundError) as exc_info:
                 await collection.update_one(
                     query=Q("ids", values=["nonexistent"]),
                     update={"title": "Updated Title"},

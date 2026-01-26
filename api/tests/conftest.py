@@ -20,6 +20,7 @@ from api.database.database import (
     Database,
     MessagesCollection,
     MetricsCollection,
+    UpdateTargetNotFoundError,
     UsersCollection,
 )
 from common.database.models.chat import ChatOut, ChatType
@@ -114,7 +115,9 @@ def mock_database(mock_es_client):
             collection.find_one = AsyncMock(return_value=None)
             collection.count = AsyncMock(return_value=0)
             collection.insert_one = AsyncMock(return_value="test_id")
-            collection.update_one = AsyncMock(return_value=None)
+            collection.update_one = AsyncMock(
+                side_effect=UpdateTargetNotFoundError("No document found")
+            )
             collection.delete_by_id = AsyncMock(return_value=None)
             collection.delete_by_query = AsyncMock()
             collection.bulk_write = AsyncMock(return_value=(0, []))

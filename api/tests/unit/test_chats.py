@@ -11,9 +11,9 @@ from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from api.database.database import StatsEntry
 from elasticsearch.dsl import Q
 
-from api.database.database import StatsEntry
 from common.database.models.chat import ChatOut, ChatType
 
 
@@ -308,15 +308,18 @@ class TestUpdateChat:
         assert result.language == "de"
 
     @pytest.mark.asyncio
-    async def test_update_chat_not_modified(self, mock_database):
-        """Test update_chat returns None when update fails."""
-        mock_database.chats.update_one = AsyncMock(return_value=None)
+    async def test_update_chat_not_found(self, mock_database):
+        """Test update_chat raises UpdateTargetNotFoundError when document not found."""
+        from api.database.database import UpdateTargetNotFoundError
 
-        result = await mock_database.chats.update_one(
-            query=Q("ids", values=[999999999]), update={"tags": ["new"]}
+        mock_database.chats.update_one = AsyncMock(
+            side_effect=UpdateTargetNotFoundError("No document found")
         )
 
-        assert result is None
+        with pytest.raises(UpdateTargetNotFoundError):
+            await mock_database.chats.update_one(
+                query=Q("ids", values=[999999999]), update={"tags": ["new"]}
+            )
 
     @pytest.mark.asyncio
     async def test_update_chat_lowercase_tags(self, mock_database, sample_chat):

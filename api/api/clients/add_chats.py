@@ -2,7 +2,7 @@ from typing import Optional
 
 from elasticsearch.dsl import Q
 
-from api.database.database import Database
+from api.database.database import Database, UpdateTargetNotFoundError
 from common.database.models.client import Client
 
 
@@ -75,9 +75,9 @@ async def assign_chat_username_to_client(
 
     update_query = {"chats_to_join": chats_to_join}
     filter = Q("ids", values=[str(client.id)])
-    updated_doc = await database.clients.update_one(query=filter, update=update_query)
 
-    if updated_doc:
+    try:
+        await database.clients.update_one(query=filter, update=update_query)
         return "SUCCESS"
-    else:
+    except UpdateTargetNotFoundError:
         return "UPDATE_FAILED"
