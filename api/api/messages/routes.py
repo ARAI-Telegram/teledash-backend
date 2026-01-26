@@ -10,7 +10,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from api.accounts.auth import Account, get_account_db, get_current_active_verified_user
 from api.database import get_database
-from api.database.database import Database
+from api.database.database import Database, UpdateTargetNotFoundError
 from api.fulltext_search import create_highlight_config
 from api.messages.models import (
     MESSAGE_SEARCH_TYPE_FIELD_MAP,
@@ -312,16 +312,15 @@ def get_messages_router(app) -> APIRouter:
         if "tags" in update_query and update_query["tags"]:
             update_query["tags"] = [tag.lower() for tag in update_query["tags"]]
 
-        updated_msg_doc = await database.messages.update_one(
-            query=search_query, update=update_query
-        )
-
-        if not updated_msg_doc:
-            raise HTTPException(
-                status_code=status.HTTP_304_NOT_MODIFIED,
-                detail=f"Message {id} was not updated",
+        try:
+            updated_msg_doc = await database.messages.update_one(
+                query=search_query, update=update_query
             )
-        else:
             return updated_msg_doc
+        except UpdateTargetNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Message {id} not found",
+            )
 
     return router

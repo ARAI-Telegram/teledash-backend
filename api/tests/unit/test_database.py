@@ -12,11 +12,11 @@ from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from api.database.database import ChatsCollection, Database, StatsEntry
 from elastic_transport import ApiResponseMeta, HttpHeaders, NodeConfig
 from elasticsearch import NotFoundError
 from elasticsearch.dsl import Q
 
-from api.database.database import ChatsCollection, Database, StatsEntry
 from common.database.models.chat import ChatOut, ChatType
 
 
@@ -312,19 +312,20 @@ class TestCollectionUpdateOne:
         mock_search_response = MagicMock()
         mock_search_response.hits = [mock_hit]
 
-        # Mock the update response
-        mock_client.update.return_value = {"result": "updated"}
-
-        # Mock find_one for the return value
-        updated_doc = ChatOut(
-            id=123456789,
-            type=ChatType.CHANNEL,
-            title="Updated Title",
-            username="test_channel",
-            scraped_by="test_client",
-            added_at=datetime(2024, 1, 1),
-            updated_at=datetime(2024, 1, 1),
-        )
+        # Mock the update response with source=True returning the updated doc
+        mock_client.update.return_value = {
+            "result": "updated",
+            "get": {
+                "_source": {
+                    "type": "CHANNEL",
+                    "title": "Updated Title",
+                    "username": "test_channel",
+                    "scraped_by": "test_client",
+                    "added_at": datetime(2024, 1, 1),
+                    "updated_at": datetime(2024, 1, 1),
+                }
+            },
+        }
 
         with patch("api.database.database.AsyncSearch") as mock_search_class:
             mock_search = MagicMock()
@@ -332,23 +333,18 @@ class TestCollectionUpdateOne:
             mock_search.execute = AsyncMock(return_value=mock_search_response)
             mock_search_class.return_value = mock_search
 
-            with patch.object(
-                collection, "find_one", new_callable=AsyncMock
-            ) as mock_find_one:
-                mock_find_one.return_value = updated_doc
+            result = await collection.update_one(
+                query=Q("ids", values=["123456789"]),
+                update={"title": "Updated Title"},
+            )
 
-                result = await collection.update_one(
-                    query=Q("ids", values=["123456789"]),
-                    update={"title": "Updated Title"},
-                )
-
-                assert result is not None
-                assert result.title == "Updated Title"
-                mock_client.update.assert_called_once()
+            assert result is not None
+            assert result.title == "Updated Title"
+            mock_client.update.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_one_not_found(self, collection_with_mock_client):
-        """Test update_one returns None when document not found."""
+        """Test update_one raises DocumentNotFoundError when document not found."""
         collection, mock_client = collection_with_mock_client
 
         mock_search_response = MagicMock()
@@ -360,12 +356,13 @@ class TestCollectionUpdateOne:
             mock_search.execute = AsyncMock(return_value=mock_search_response)
             mock_search_class.return_value = mock_search
 
-            result = await collection.update_one(
-                query=Q("ids", values=["nonexistent"]),
-                update={"title": "Updated Title"},
-            )
+            with pytest.raises(Exception) as exc_info:
+                await collection.update_one(
+                    query=Q("ids", values=["nonexistent"]),
+                    update={"title": "Updated Title"},
+                )
 
-            assert result is None
+            assert "No document found to update" in str(exc_info.value)
 
 
 class TestCollectionDeleteById:
