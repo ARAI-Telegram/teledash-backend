@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", ClientOut, ChatOut, MessageOut, UserOut, Metric, LabeledDataOut)
 
 
+class UpdateTargetNotFoundError(Exception):
+    """Raised when no document is found to update in update_one operation."""
+
+    pass
+
+
 class StatsEntry(BaseModel):
     value: str
     count: int
@@ -274,30 +280,47 @@ class Collection(Generic[T]):
 
     async def update_one(
         self, query: Query, update: Dict, refresh: Optional[bool] = True
-    ) -> Optional[T]:
+    ) -> T:
         """
-        Update a single document based on the given query and update dict, and return the updated document.
-        Note: Consider implementing update_by_id variant and update_many support.
+        Update a single document matching the query and return the updated document.
+
+        Args:
+            query: Elasticsearch DSL query to find the document
+            update: Dictionary of fields to update
+            refresh: If True, makes changes immediately visible. Defaults to True.
+
+        Returns:
+            Updated document with merged changes.
+
+        Raises:
+            UpdateTargetNotFoundError: If no document matches the query.
         """
         search = AsyncSearch(using=self.client, index=self.name).query(query)
         response = await self._execute_search(search, error_context="update query")
 
         if not response.hits:
-            logger.warning("No document found to update")
-            return None
+            error_msg = f"No document found to update in index '{self.name}' with query: {query.to_dict()}"
+            logger.warning(error_msg)
+            raise UpdateTargetNotFoundError(error_msg)
 
-        doc_id = response.hits[0].meta.id
-        doc_index = response.hits[0].meta.index
+        hit = response.hits[0]
+        doc_id = hit.meta.id
+        doc_index = hit.meta.index
 
+        # Update the document and get the updated source back
         update_response = await self.client.update(
-            index=doc_index, id=doc_id, body={"doc": update}, refresh=refresh
+            index=doc_index,
+            id=doc_id,
+            body={"doc": update},
+            refresh=refresh,
+            source=True,
         )
-        if update_response.get("result") == "updated":
-            updated_doc = await self.find_one(filter=Q("ids", values=[str(doc_id)]))
-            return updated_doc
-        else:
-            logger.warning(f"Document with ID {doc_id} not updated")
-            return None
+
+        # Extract the full updated document from the response
+        updated_doc = update_response["get"]["_source"]
+        updated_doc["id"] = doc_id
+
+        return self.__transform_document(cast(Dict[str, Any], updated_doc))
 
     async def delete_by_query(self, query: Optional[Query] = None) -> int:
         """

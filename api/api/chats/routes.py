@@ -22,7 +22,7 @@ from api.chats.validators import (
 from api.database import get_database
 from api.database.aggregations import aggregate_classification_results
 from api.database.aggregations_chats import get_chat_metrics
-from api.database.database import Database
+from api.database.database import Database, UpdateTargetNotFoundError
 from api.fulltext_search import create_highlight_config
 from api.pagination import PaginatedChats, PaginatedResponse, Pagination
 from api.sort_config import ChatSortOptions
@@ -236,17 +236,16 @@ def get_chats_router(app) -> APIRouter:
         if "tags" in update_query and update_query["tags"]:
             update_query["tags"] = [tag.lower() for tag in update_query["tags"]]
 
-        updated_chat = await database.chats.update_one(
-            query=search_query, update=update_query
-        )
-
-        if not updated_chat:
-            raise HTTPException(
-                status_code=status.HTTP_304_NOT_MODIFIED,
-                detail=f"Chat with id {id} was not updated",
+        try:
+            updated_chat = await database.chats.update_one(
+                query=search_query, update=update_query
             )
-
-        return updated_chat
+            return updated_chat
+        except UpdateTargetNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Chat with id {id} not found",
+            )
 
     @router.delete(
         "/chats",
