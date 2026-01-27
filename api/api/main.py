@@ -10,8 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.accounts.auth import create_accounts_db_and_table, init_fast_api_users
 from api.accounts.routes import get_accounts_router
 from api.chats.routes import get_chats_router
+from api.classifier_evaluation.routes import get_evaluation_router
 from api.clients.routes import get_clients_router
 from api.database import database
+from api.labeling.routes import get_labeling_router
 from api.messages.routes import get_messages_router
 from api.metrics.routes import get_metrics_router
 from api.saved_searches.routes import get_saved_searches_router
@@ -47,6 +49,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.include_router(get_metrics_router(app))
     app.include_router(get_saved_searches_router())
     app.include_router(get_tags_router())
+    app.include_router(get_labeling_router())
+    app.include_router(get_evaluation_router())
 
     if settings.storage_endpoint and len(settings.save_attachment_types) >= 1:
         try:

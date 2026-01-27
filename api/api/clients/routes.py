@@ -2,6 +2,11 @@ import logging
 from typing import Optional, Tuple
 from uuid import uuid4
 
+from elasticsearch.dsl import Q
+from elasticsearch.dsl.query import Query as ESQuery
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
+
 from api.accounts.auth import get_current_active_verified_user
 from api.accounts.models import AccountRead
 from api.clients.add_chats import (
@@ -23,15 +28,10 @@ from api.clients.models import (
 )
 from api.clients.validators import parse_client_filter, parse_client_sort
 from api.database import get_database
-from api.database.database import Database
+from api.database.database import Database, UpdateTargetNotFoundError
 from api.pagination import PaginatedClients, PaginatedResponse, Pagination
 from api.sort_config import ClientSortOptions
 from api.validators import FieldFilter, SortParams, parse_fields_params
-from elasticsearch.dsl import Q
-from elasticsearch.dsl.query import Query as ESQuery
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
-
 from common.database.models.client import ClientIn, ClientOut
 from common.settings import settings
 
@@ -178,14 +178,13 @@ def get_clients_router(app) -> APIRouter:
                 query=search_query, update=update_query
             )
 
-            if not updated_client_doc:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Client {id} could not be updated",
-                )
-
             return updated_client_doc
 
+        except UpdateTargetNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Client {id} not found",
+            )
         except TwoFactorAuthenticationRequired as e:
             # 2FA required - return 403 status indicating additional authentication needed
             raise HTTPException(
@@ -251,14 +250,13 @@ def get_clients_router(app) -> APIRouter:
                 query=search_query, update=update_query
             )
 
-            if not updated_client_doc:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Client {id} could not be updated",
-                )
-
             return updated_client_doc
 
+        except UpdateTargetNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Client {id} not found",
+            )
         except ValueError as e:
             logger.error(
                 f"Password verification value error for client {id}: {e}",
@@ -321,17 +319,16 @@ def get_clients_router(app) -> APIRouter:
             exclude_unset=True, exclude_none=True, by_alias=True
         )
 
-        updated_client_doc = await database.clients.update_one(
-            query=search_query, update=update_query
-        )
-
-        if not updated_client_doc:
-            raise HTTPException(
-                status_code=status.HTTP_304_NOT_MODIFIED,
-                detail=f"Client with id {id} was not updated",
+        try:
+            updated_client_doc = await database.clients.update_one(
+                query=search_query, update=update_query
             )
-        else:
             return updated_client_doc
+        except UpdateTargetNotFoundError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Client with id {id} not found",
+            )
 
     @router.delete(
         "/clients/{id}",

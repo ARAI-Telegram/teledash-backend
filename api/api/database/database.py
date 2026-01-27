@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import (
     Any,
     AsyncIterator,
@@ -6,9 +7,9 @@ from typing import (
     Generic,
     List,
     Optional,
-    Tuple,
     Type,
     TypeVar,
+    Union,
     cast,
 )
 from uuid import UUID
@@ -17,10 +18,10 @@ from elasticsearch import AsyncElasticsearch, ConnectionTimeout, NotFoundError
 from elasticsearch.dsl import AsyncSearch, Index, Q
 from elasticsearch.dsl.query import Query
 from elasticsearch.dsl.response import Response
-from elasticsearch.helpers import async_bulk
 from pydantic import BaseModel
 
 from api.fulltext_search import HighlightConfig
+from api.labeling.models import LabeledDataOut
 from api.sort_config import SortOptions, SortParams
 from api.validators import FieldFilter
 from common.database.models.chat import ChatOut
@@ -32,7 +33,13 @@ from common.settings import settings
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T", ClientOut, ChatOut, MessageOut, UserOut, Metric)
+T = TypeVar("T", ClientOut, ChatOut, MessageOut, UserOut, Metric, LabeledDataOut)
+
+
+class UpdateTargetNotFoundError(Exception):
+    """Raised when no document is found to update in update_one operation."""
+
+    pass
 
 
 class StatsEntry(BaseModel):
@@ -45,7 +52,6 @@ class Collection(Generic[T]):
     model: Type[T]
 
     def __init__(self, client: AsyncElasticsearch) -> None:
-        """Initialize the collection with an Elasticsearch client."""
         self.client = client
         self.index = Index(self.name)
 
@@ -55,8 +61,77 @@ class Collection(Generic[T]):
             )
 
     def __transform_document(self, doc: Dict[str, Any]) -> T:
-        """Transform a raw Elasticsearch document into a typed model instance."""
         return self.model.model_validate(doc)
+
+    def _hit_to_doc(
+        self,
+        hit: Any,
+        include_highlight: bool = False,
+        include_score: bool = False,
+    ) -> Dict[str, Any]:
+        """Convert an Elasticsearch hit to a document dict.
+
+        Args:
+            hit: Elasticsearch hit object
+            include_highlight: Whether to include highlight data if present
+            include_score: Whether to include the score if present
+
+        Returns:
+            Document dict with id and optional metadata
+        """
+        doc = hit.to_dict()
+        doc["id"] = hit.meta.id
+
+        if include_highlight and hasattr(hit.meta, "highlight"):
+            doc["highlight"] = hit.meta.highlight.to_dict()
+
+        if include_score and hasattr(hit.meta, "score"):
+            doc["score"] = hit.meta.score
+
+        if hasattr(hit, "classification") and hasattr(hit.classification, "score_pos"):
+            doc["classification_score_pos"] = hit.classification.score_pos
+
+        return doc
+
+    def _apply_field_filters(
+        self, search: AsyncSearch, fields: Optional[FieldFilter]
+    ) -> AsyncSearch:
+        """Apply field include/exclude filters to a search object.
+
+        Args:
+            search: Elasticsearch search object
+            fields: Optional field filter with includes/excludes
+
+        Returns:
+            Search object with field filters applied
+        """
+        if fields:
+            if "includes" in fields:
+                search = search.source(includes=fields["includes"])
+            if "excludes" in fields:
+                search = search.source(excludes=fields["excludes"])
+        return search
+
+    async def _execute_search(
+        self, search: AsyncSearch, error_context: str = "query"
+    ) -> Response:
+        """Execute a search with standardized error handling.
+
+        Args:
+            search: Elasticsearch search object to execute
+            error_context: Context string for error logging
+
+        Returns:
+            Elasticsearch response
+
+        Raises:
+            Exception: Re-raises any Elasticsearch errors after logging
+        """
+        try:
+            return await search.execute()
+        except Exception as e:
+            logger.error(f"Elasticsearch {error_context} error: {e}", exc_info=True)
+            raise
 
     async def _get_match_response(
         self,
@@ -68,7 +143,6 @@ class Collection(Generic[T]):
         from_: Optional[int] = None,
         highlight: Optional[HighlightConfig] = None,
     ) -> Response:
-        """Execute an Elasticsearch search and return the raw response."""
         search = AsyncSearch(using=self.client, index=self.name)
         if search_query:
             search = search.query(search_query)
@@ -77,11 +151,9 @@ class Collection(Generic[T]):
 
         if filter:
             search = search.filter(filter)
-        if fields:
-            if "includes" in fields:
-                search = search.source(includes=fields["includes"])
-            if "excludes" in fields:
-                search = search.source(excludes=fields["excludes"])
+
+        search = self._apply_field_filters(search, fields)
+
         if sort:
             sort_fields = []
             for item in sort:
@@ -106,13 +178,7 @@ class Collection(Generic[T]):
             for field, config in highlight["fields"].items():
                 search = search.highlight(field, **config)
 
-        try:
-            response = await search.execute()
-        except Exception as e:
-            logger.error(f"Elasticsearch query error: {e}", exc_info=True)
-            raise
-
-        return response
+        return await self._execute_search(search)
 
     async def find_one(
         self,
@@ -121,15 +187,14 @@ class Collection(Generic[T]):
         sort: Optional[SortParams] = None,
         fields: Optional[FieldFilter] = None,
     ) -> Optional[T]:
-        """Find and return a single document matching the query."""
         response = await self._get_match_response(
             search_query, filter, sort, fields, size=1
         )
         if not response.hits:
             return None
-        doc = cast(Dict[str, Any], response.hits[0].to_dict())
-        doc["id"] = response.hits[0].meta.id
-        return self.__transform_document(doc)
+        hit = response.hits[0]
+        doc = self._hit_to_doc(hit)
+        return self.__transform_document(cast(Dict[str, Any], doc))
 
     async def find(
         self,
@@ -141,7 +206,6 @@ class Collection(Generic[T]):
         from_: Optional[int] = None,
         highlight: Optional[HighlightConfig] = None,
     ) -> AsyncIterator[T]:
-        """Find and yield multiple documents matching the query."""
         response = await self._get_match_response(
             search_query,
             filter,
@@ -152,24 +216,57 @@ class Collection(Generic[T]):
             highlight,
         )
         for hit in response.hits:
-            doc = hit.to_dict()
-            doc["id"] = hit.meta.id
-            if hasattr(hit.meta, "highlight"):
-                doc["highlight"] = hit.meta.highlight.to_dict()
-            if hasattr(hit.meta, "score"):
-                doc["score"] = hit.meta.score
-            if hasattr(hit, "classification") and hasattr(
-                hit.classification, "score_pos"
-            ):
-                doc["classification_score_pos"] = hit.classification.score_pos
-            yield self.__transform_document(
-                cast(Dict[str, Any], doc)
-            )  # Using yield to lazily return validated documents
+            doc = self._hit_to_doc(hit, include_highlight=True, include_score=True)
+            yield self.__transform_document(cast(Dict[str, Any], doc))
+
+    async def find_random(
+        self,
+        size: int,
+        filter: Optional[Query] = None,
+        seed: Optional[int] = None,
+        fields: Optional[FieldFilter] = None,
+    ) -> List[T]:
+        """
+        Get random documents from the index using Elasticsearch's function_score with random_score.
+
+        Args:
+            size: Number of random documents to return
+            filter: Optional filter query to apply before random sampling
+            seed: Optional seed for reproducible random results. If None, uses random seed.
+            fields: Optional field filter to include/exclude specific fields
+
+        Returns:
+            List of random documents matching the filter criteria
+        """
+        search = AsyncSearch(using=self.client, index=self.name)
+
+        if filter:
+            search = search.filter(filter)
+
+        # Use function_score with random_score for random sampling
+        # Use current timestamp if no seed provided for true randomness
+        random_seed = seed if seed is not None else int(time.time() * 1000)
+        search = search.query(
+            "function_score",
+            query=Q("match_all"),
+            random_score={"seed": random_seed, "field": "_seq_no"},
+        )
+
+        search = self._apply_field_filters(search, fields)
+        search = search.extra(size=size)
+
+        response = await self._execute_search(search, error_context="random query")
+
+        return [
+            self.__transform_document(
+                cast(Dict[str, Any], self._hit_to_doc(hit, include_score=True))
+            )
+            for hit in response.hits
+        ]
 
     async def count(
         self, search_query: Optional[Query] = None, filter: Optional[Query] = None
     ) -> int:
-        """Count the number of documents matching the query."""
         search = AsyncSearch(using=self.client, index=self.name)
 
         if search_query:
@@ -183,43 +280,47 @@ class Collection(Generic[T]):
 
     async def update_one(
         self, query: Query, update: Dict, refresh: Optional[bool] = True
-    ) -> Optional[T]:
+    ) -> T:
         """
-        Update a single document based on the given query and update dict, and return the updated document.
-        Note: Consider implementing update_by_id variant and update_many support.
-        """
-        # Note: Could potentially reuse find_one logic here
-        search = AsyncSearch(using=self.client, index=self.name).query(query)
+        Update a single document matching the query and return the updated document.
 
-        try:
-            response = await search.execute()
-        except Exception as e:
-            logger.error(f"Elasticsearch query error: {e}", exc_info=True)
-            raise
+        Args:
+            query: Elasticsearch DSL query to find the document
+            update: Dictionary of fields to update
+            refresh: If True, makes changes immediately visible. Defaults to True.
+
+        Returns:
+            Updated document with merged changes.
+
+        Raises:
+            UpdateTargetNotFoundError: If no document matches the query.
+        """
+        search = AsyncSearch(using=self.client, index=self.name).query(query)
+        response = await self._execute_search(search, error_context="update query")
 
         if not response.hits:
-            logger.warning("No document found to update")
-            return None
+            error_msg = f"No document found to update in index '{self.name}' with query: {query.to_dict()}"
+            logger.warning(error_msg)
+            raise UpdateTargetNotFoundError(error_msg)
 
-        doc_id = response.hits[0].meta.id
-        doc_index = response.hits[0].meta.index
+        hit = response.hits[0]
+        doc_id = hit.meta.id
+        doc_index = hit.meta.index
 
+        # Update the document and get the updated source back
         update_response = await self.client.update(
-            index=doc_index, id=doc_id, body={"doc": update}, refresh=refresh
+            index=doc_index,
+            id=doc_id,
+            body={"doc": update},
+            refresh=refresh,
+            source=True,
         )
-        if update_response.get("result") == "updated":
-            updated_doc = await self.find_one(filter=Q("ids", values=[str(doc_id)]))
-            return updated_doc
-        else:
-            logger.warning(f"Document with ID {doc_id} not updated")
-            return None
 
-    async def bulk_write(self, actions: List[Dict]) -> Tuple[int, List[Dict[str, Any]]]:
-        """Execute a bulk write operation and return success count and errors."""
-        successes, errors = await async_bulk(self.client, actions=actions)
-        if isinstance(errors, int):
-            errors = []  # Convert to empty list if it's an integer which happens when no errors
-        return successes, errors
+        # Extract the full updated document from the response
+        updated_doc = update_response["get"]["_source"]
+        updated_doc["id"] = doc_id
+
+        return self.__transform_document(cast(Dict[str, Any], updated_doc))
 
     async def delete_by_query(self, query: Optional[Query] = None) -> int:
         """
@@ -251,10 +352,9 @@ class Collection(Generic[T]):
     async def insert_one(
         self,
         document: Dict[str, Any],
-        id: Optional[UUID] = None,
+        id: Optional[Union[UUID, str]] = None,
         refresh: Optional[bool] = True,
     ) -> Optional[str]:
-        """Insert a single document and return its ID."""
         response = await self.client.index(
             index=self.name,
             id=str(id),
@@ -328,14 +428,11 @@ class Collection(Generic[T]):
         self, doc_id: str, refresh: Optional[bool] = True
     ) -> Optional[T]:
         """
-        Delete a single document by its ID and return the deleted document.
+        Delete a single document based on the given _id and return the deleted document.
 
-        Args:
-            doc_id: The ID of the document to delete.
-            refresh: If True, refresh the index after deletion to make it visible immediately.
-
-        Returns:
-            The deleted document, or None if no document was found.
+        :param doc_id: The ID of the document to delete.
+        :param refresh: If True, refresh the index after the deletion to make it visible in search results.
+        :return: The deleted document, or None if no document was found.
         """
         doc_to_delete = await self.find_one(filter=Q("ids", values=[doc_id]))
 
@@ -387,9 +484,13 @@ class MetricsCollection(Collection[Metric]):
     model = Metric
 
 
+class LabeledDataCollection(Collection[LabeledDataOut]):
+    name = "labeled_data"
+    model = LabeledDataOut
+
+
 class Database:
     def __init__(self, connect=True) -> None:
-        """Initialize the Database. If connect is True, establishes connection immediately."""
         if connect:
             self.connect()
 
@@ -411,6 +512,7 @@ class Database:
             self.messages = MessagesCollection(self.es_client)
             self.users = UsersCollection(self.es_client)
             self.metrics = MetricsCollection(self.es_client)
+            self.labeled_data = LabeledDataCollection(self.es_client)
         except ConnectionError as e:
             logger.error(f"Error connecting to Elasticsearch: {e}", exc_info=True)
             raise
@@ -425,9 +527,7 @@ class Database:
             raise
 
     def get_collection_by_name(self, name: str) -> Collection:
-        """Get a collection by its name (e.g., 'clients', 'chats', 'messages')."""
         return getattr(self, name)
 
     async def close(self) -> None:
-        """Close the Elasticsearch client connection."""
         await self.es_client.close()
