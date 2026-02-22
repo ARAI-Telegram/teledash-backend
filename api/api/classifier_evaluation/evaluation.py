@@ -83,10 +83,10 @@ def get_evaluation_metrics(y_true: List[int], y_pred: List[int]) -> EvaluationMe
     fn = sum(1 for true, pred in zip(y_true, y_pred) if true == 1 and pred == 0)
 
     return EvaluationMetrics(
-        accuracy=float(accuracy),
-        precision=float(precision),
-        recall=float(recall),
-        f1_score=float(f1),
+        accuracy=round(float(accuracy), 2),
+        precision=round(float(precision), 2),
+        recall=round(float(recall), 2),
+        f1_score=round(float(f1), 2),
         true_positives=tp,
         true_negatives=tn,
         false_positives=fp,
