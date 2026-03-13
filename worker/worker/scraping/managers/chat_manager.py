@@ -89,6 +89,9 @@ class ChatManager:
     def get_unscraped_chat_ids(self, chat_ids: List[int]) -> List[int]:
         """Return only chat IDs where history has never been scraped.
 
+        Queries for chats that are scraped (have history_updated_at) and subtracts
+        from the input set, so chat IDs not yet in the index are correctly included.
+
         Args:
             chat_ids: List of Telegram chat IDs to filter.
 
@@ -98,10 +101,10 @@ class ChatManager:
         if not chat_ids:
             return []
         results = self.database.chats.find(
-            filter=Q("ids", values=chat_ids)
-            & ~Q("exists", field="history_updated_at"),
+            filter=Q("ids", values=chat_ids) & Q("exists", field="history_updated_at"),
         )
-        return [int(chat.id) for chat in results if chat is not None]
+        scraped_ids = {int(chat.id) for chat in results if chat is not None}
+        return [c for c in chat_ids if c not in scraped_ids]
 
     def get_chat_documents(
         self, chat_ids: List[int], fields: Optional[List[str]] = None
