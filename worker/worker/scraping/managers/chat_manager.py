@@ -86,6 +86,23 @@ class ChatManager:
 
         return chat_refs
 
+    def get_unscraped_chat_ids(self, chat_ids: List[int]) -> List[int]:
+        """Return only chat IDs where history has never been scraped.
+
+        Args:
+            chat_ids: List of Telegram chat IDs to filter.
+
+        Returns:
+            Subset of chat_ids where history_updated_at is not set.
+        """
+        if not chat_ids:
+            return []
+        results = self.database.chats.find(
+            filter=Q("ids", values=chat_ids)
+            & ~Q("exists", field="history_updated_at"),
+        )
+        return [int(chat.id) for chat in results if chat is not None]
+
     def get_chat_documents(
         self, chat_ids: List[int], fields: Optional[List[str]] = None
     ) -> Dict[int, Chat]:
