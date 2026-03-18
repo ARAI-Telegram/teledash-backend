@@ -3,6 +3,7 @@
 import time
 from typing import Dict, List, Optional
 
+import asyncio
 from celery.utils.log import get_task_logger
 from pydantic.main import BaseModel
 
@@ -180,7 +181,11 @@ class StorageFileCache:
 
         bucket_name = bucket_name_from_attachment_type(attachment_type)
         try:
-            objects = self.storage.list_objects(bucket_name, prefix=file_unique_id + ".")
+            objects = await asyncio.to_thread(
+                self.storage.list_objects,
+                bucket_name,
+                prefix=file_unique_id + ".",
+            )
         except Exception as e:
             logger.warning(
                 f"Error checking storage for {attachment_type}/{file_unique_id}: {e}"
