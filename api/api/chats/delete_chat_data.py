@@ -37,9 +37,6 @@ async def delete_chat_data(
 
     Returns:
         Tuple of (deleted_storage_objects, errors)
-
-    Raises:
-        Exception: If the chat record itself cannot be deleted
     """
     errors: list[str] = []
 
@@ -52,9 +49,13 @@ async def delete_chat_data(
             {"exists": {"field": "attachment.storage_refs"}},
         )
 
-    # 2. Delete chat record (critical — raise if fails)
-    await database.chats.delete_by_query(query=Q("ids", values=[chat_id]))
-    logger.info(f"Deleted chat record {chat_id}")
+    # 2. Delete chat record
+    try:
+        await database.chats.delete_by_query(query=Q("ids", values=[chat_id]))
+        logger.info(f"Deleted chat record {chat_id}")
+    except Exception as e:
+        logger.error(f"Failed to delete chat record {chat_id}: {e}", exc_info=True)
+        errors.append("Failed to delete chat record")
 
     # 3. Delete message index
     try:

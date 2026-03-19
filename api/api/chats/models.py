@@ -30,6 +30,5 @@ class DeleteChatResponse(BaseModel):
     """Response for the delete chat endpoint."""
 
     leave_results: Optional[List[LeaveChatResult]] = None
-    warnings: Optional[List[str]] = None
     deleted_storage_objects: Optional[int] = None
     errors: Optional[List[str]] = None
