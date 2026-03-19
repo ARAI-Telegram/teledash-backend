@@ -311,8 +311,8 @@ def get_chats_router(app) -> APIRouter:
                 )
 
         # 2. Delete data
-        # deleted_storage_objects: int | None = None
-        # errors: list[str] | None = None
+        deleted_storage_objects: int | None = None
+        errors: list[str] | None = None
         if delete:
             try:
                 deleted_storage_objects, errors = await delete_chat_data(
@@ -328,9 +328,7 @@ def get_chats_router(app) -> APIRouter:
 
         return DeleteChatResponse(
             leave_results=leave_results,
-            deleted_storage_objects=deleted_storage_objects
-            if deleted_storage_objects
-            else None,
+            deleted_storage_objects=deleted_storage_objects,
             errors=errors if errors else None,
         )
 

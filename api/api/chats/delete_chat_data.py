@@ -5,10 +5,10 @@ Service functions for deleting a chat and its related data.
 import logging
 from typing import Optional
 
-from api.database.database import Database
-from api.database.utils import collect_storage_refs
 from elasticsearch.dsl import Q
 
+from api.database.database import Database
+from api.database.utils import collect_storage_refs
 from common.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,11 @@ async def delete_chat_data(
     # 1. Collect storage refs BEFORE deleting messages
     storage_refs: set[tuple[str, str]] = set()
     if storage:
-        storage_refs = await collect_storage_refs(database, chat_id)
+        storage_refs = await collect_storage_refs(
+            database.es_client,
+            f"messages_{chat_id}",
+            {"exists": {"field": "attachment.storage_refs"}},
+        )
 
     # 2. Delete chat record (critical — raise if fails)
     await database.chats.delete_by_query(query=Q("ids", values=[chat_id]))

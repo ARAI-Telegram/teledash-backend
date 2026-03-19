@@ -563,11 +563,16 @@ class TestChatDeletion:
             "api.chats.delete_chat_data.collect_storage_refs",
             new_callable=AsyncMock,
             return_value=storage_refs,
-        ):
+        ) as mock_collect:
             deleted_storage_objects, errors = await delete_chat_data(
                 mock_database, 123, storage=mock_storage
             )
 
+        mock_collect.assert_awaited_once_with(
+            mock_database.es_client,
+            "messages_123",
+            {"exists": {"field": "attachment.storage_refs"}},
+        )
         assert deleted_storage_objects == 3
         assert len(errors) == 0
         mock_storage.cleanup_orphaned_objects.assert_called_once()
