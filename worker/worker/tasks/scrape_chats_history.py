@@ -353,7 +353,7 @@ async def _scrape_single_chat_history(
         # Save when container is full
         if container.is_full:
             logger.info(
-                "Container is full, saving to database. Messages with attachment: %d",
+                "Container is full, saving to database. Downloaded attachments: %d",
                 len(downloaded_attachments),
             )
             try:
@@ -373,7 +373,7 @@ async def _scrape_single_chat_history(
 
     # Save remaining results
     logger.info(
-        "Saving remaining results to database. Messages with attachment: %d",
+        "Saving remaining results to database. Downloaded attachments: %d",
         len(downloaded_attachments),
     )
     try:

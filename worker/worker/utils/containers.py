@@ -1,9 +1,9 @@
 """Shared data structures and containers for scraping operations."""
 
 import time
-from pathlib import Path
 from typing import Dict, List, Optional
 
+import asyncio
 from celery.utils.log import get_task_logger
 from pydantic.main import BaseModel
 
@@ -158,55 +158,45 @@ class ResultsContainer:
 
 
 class StorageFileCache:
-    """File cache for a scraping session that checks storage."""
+    """Per-task in-memory cache for storage file lookups.
+
+    Each file is checked individually against storage via a prefix query and
+    cached in memory to prevent duplicate queries within the same task run.
+    """
 
     def __init__(self) -> None:
-        """Initialize StorageFileCache with empty cache and storage connection."""
         self.cache: Dict[
             str, Dict[str, str]
         ] = {}  # {attachment_type: {unique_id: full_filename}}
-        self.initialized: Dict[str, bool] = {}
         self.created_at = time.time()
         self.storage = Storage()
-        logger.info("Created file cache with storage connection")
 
-    async def initialize_for_type(self, attachment_type: str) -> None:
-        """Initialize cache for a specific attachment type by scanning storage bucket."""
-        if self.initialized.get(attachment_type, False):
-            return
+    async def file_exists(self, attachment_type: str, file_unique_id: str) -> bool:
+        """Check if file exists in cache or storage."""
+        if file_unique_id in self.cache.get(attachment_type, {}):
+            return True
 
         # Import here to avoid circular dependency
         from worker.utils.helpers import bucket_name_from_attachment_type
 
         bucket_name = bucket_name_from_attachment_type(attachment_type)
-        logger.info(
-            f"Initializing cache for {attachment_type}, scanning storage bucket {bucket_name}"
-        )
-
-        file_dict = {}
         try:
-            # List all objects in the storage bucket
-            object_keys = self.storage.list_objects(bucket_name)
-            for object_key in object_keys:
-                # Extract the unique ID (filename without extension) and store full filename
-                file_unique_id = Path(object_key).stem
-                file_dict[file_unique_id] = object_key
-                logger.debug(
-                    f"Found existing file in storage: {file_unique_id} -> {object_key}"
-                )
+            objects = await asyncio.to_thread(
+                self.storage.list_objects,
+                bucket_name,
+                prefix=file_unique_id + ".",
+            )
         except Exception as e:
-            logger.warning(f"Error scanning storage bucket {bucket_name}: {e}")
+            logger.warning(
+                f"Error checking storage for {attachment_type}/{file_unique_id}: {e}"
+            )
+            return False
 
-        self.cache[attachment_type] = file_dict
-        self.initialized[attachment_type] = True
-        logger.info(
-            f"Initialized cache for {attachment_type}: {len(file_dict)} files in storage"
-        )
+        if objects:
+            self.cache.setdefault(attachment_type, {})[file_unique_id] = objects[0]
+            return True
 
-    async def file_exists(self, attachment_type: str, file_unique_id: str) -> bool:
-        """Check if file exists in storage using cache."""
-        await self.initialize_for_type(attachment_type)
-        return file_unique_id in self.cache.get(attachment_type, {})
+        return False
 
     def get_filename(self, attachment_type: str, file_unique_id: str) -> Optional[str]:
         """Get the full filename (with extension) for a file that exists in storage."""
@@ -215,7 +205,7 @@ class StorageFileCache:
     def add_file(
         self, attachment_type: str, file_unique_id: str, full_filename: str
     ) -> None:
-        """Add a newly uploaded file to the cache."""
+        """Add a file to the cache."""
         if attachment_type not in self.cache:
             self.cache[attachment_type] = {}
         self.cache[attachment_type][file_unique_id] = full_filename
@@ -227,5 +217,4 @@ class StorageFileCache:
         """Clear the entire cache."""
         files_count = sum(len(file_dict) for file_dict in self.cache.values())
         self.cache.clear()
-        self.initialized.clear()
         logger.info(f"Cleared storage file cache ({files_count} files)")
