@@ -144,6 +144,7 @@ class ScrapingService:
         self,
         client_doc: Client,
         active_history_chat_ids: List[int],
+        client_has_active_live_task: bool = False,
     ) -> Tuple[str, Set[int]]:
         """Prepare a single client for scraping operations.
 
@@ -153,11 +154,15 @@ class ScrapingService:
         3. Fetches and updates chat references
         4. Ensures all indices for all chats exist for scraping
         5. Filters out chats already being scraped
+        6. If live is already running, filters out chats already fully scraped
 
         Args:
             client_doc: Client document to prepare.
             active_history_chat_ids: List of chat IDs currently being scraped
                                     by history scrapers (to exclude).
+            client_has_active_live_task: If True, skip chats that already have
+                                        history_updated_at set (live handles new
+                                        messages; history is not needed).
 
         Returns:
             Tuple of (client_id, set of chat_ids ready for scraping).
@@ -187,6 +192,16 @@ class ScrapingService:
 
                 # Extract chat IDs from references
                 tg_chat_ids = [ref["id"] for ref in chat_refs]
+
+                # If live is already running, skip chats that have been fully scraped
+                if client_has_active_live_task:
+                    tg_chat_ids = self.chat_manager.get_unscraped_chat_ids(tg_chat_ids)
+                    if not tg_chat_ids:
+                        logger.info(
+                            f"All chats already scraped for client {client_doc.id}, "
+                            f"live is running — skipping history"
+                        )
+                        return (str(client_doc.id), set())
 
                 # Prepare indices for all chats
                 prepared_chat_ids = await self.ensure_chats_ready(

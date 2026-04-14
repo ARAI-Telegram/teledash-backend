@@ -10,17 +10,9 @@ from worker import tasks
 from worker.database.database import Database
 from worker.main import app
 from worker.scraping.services.scraping_service import ScrapingService
-from worker.utils.celery_queue_manager import get_active_tasks, task_already_reserved
+from worker.utils.celery_queue_manager import get_active_tasks
 
 logger = get_task_logger(__name__)
-
-
-@app.task(bind=True, name="scraping.enqueue_init_scrapers")
-def enqueue_init_scrapers(self):
-    if task_already_reserved("scraping.init_scrapers"):
-        logger.info("init_scrapers already queued; skipping enqueue")
-        return
-    init_scrapers.apply_async()
 
 
 @app.task(bind=True, name="scraping.init_scrapers")
@@ -95,9 +87,11 @@ async def init_scrapers_async(
             continue
 
         # Prepare client for scraping
+        client_has_active_live = client_doc.id in active_live_client_ids
         client_id, chat_ids = await scraping_service.prepare_client_for_scraping(
             client_doc=client_doc,
             active_history_chat_ids=active_history_chat_ids,
+            client_has_active_live_task=client_has_active_live,
         )
 
         # Add to history scraping list if has chats

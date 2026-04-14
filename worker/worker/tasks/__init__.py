@@ -1,4 +1,4 @@
-from .init_scrapers import enqueue_init_scrapers, init_scrapers
+from .init_scrapers import init_scrapers
 from .process_attachments import process_attachments
 from .purge_message_attachments import purge_message_attachments
 from .scrape_chats_history import scrape_chats_history
@@ -17,5 +17,4 @@ __all__ = [
     "purge_message_attachments",
     "process_attachments",
     "process_new_message",
-    "enqueue_init_scrapers",
 ]

@@ -1,11 +1,11 @@
 import argparse
 
 from worker.database.database import Database
-from worker.tasks import enqueue_init_scrapers
+from worker.tasks import init_scrapers
 
 
 def run_init_scrapers():
-    enqueue_init_scrapers.delay()
+    init_scrapers.delay()
     print("Triggering init_scrapers task...")
 
 

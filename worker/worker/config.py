@@ -13,8 +13,7 @@ result_expires = 259200
 
 # careful: maps task names set in @task decorator
 task_routes = {
-    # History related tasks - serialized
-    "scraping.enqueue_init_scrapers": {"queue": "history"},
+    # History related tasks - concurrency > 1 only useful with multiple clients
     "scraping.init_scrapers": {"queue": "history"},
     "scraping.scrape_chats_history": {"queue": "history"},
     # Chat updates - parallelizable, but not necessary
@@ -34,8 +33,9 @@ worker_send_task_events = True
 # scheduled tasks
 beat_schedule = {
     "scrape-chats": {
-        "task": "scraping.enqueue_init_scrapers",
+        "task": "scraping.init_scrapers",
         "schedule": timedelta(minutes=settings.scrape_chats_interval_minutes),
+        "options": {"expires": settings.scrape_chats_interval_minutes * 60},
     },
     "update-chats": {
         "task": "scraping.update_chats",
