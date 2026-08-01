@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     storage_provider: Literal["aws", "s3-compatible"] = "s3-compatible"
     storage_region: Optional[str] = None
     storage_use_ssl: bool = False
+    storage_verify_ssl: bool = True  # verify TLS cert; set False for self-signed endpoints (e.g. NAS quobjects)
     storage_endpoint: str = "minio:9000"  # Custom endpoint for non-AWS providers
     storage_bucket_prefix: str = ""  # Optional prefix for bucket names
 
