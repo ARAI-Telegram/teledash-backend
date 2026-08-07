@@ -179,6 +179,7 @@ def sample_client():
     """Create a sample ClientOut for testing."""
     return ClientOut(
         id="test_client_id",
+        title="Test Client",
         phone_number="+1234567890",
         api_id=12345,
         api_hash="test_api_hash",

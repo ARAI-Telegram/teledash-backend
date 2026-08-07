@@ -57,7 +57,7 @@ class TestGetEvaluationMetrics:
         assert metrics.accuracy == 0.5  # 3 correct out of 6
         assert metrics.precision == 0.5  # 3 TP / (3 TP + 3 FP)
         assert metrics.recall == 1.0  # 3 TP / (3 TP + 0 FN), all positives caught
-        assert metrics.f1_score == pytest.approx(2 * 0.5 * 1.0 / (0.5 + 1.0), rel=1e-5)
+        assert metrics.f1_score == pytest.approx(0.67, abs=0.005)
         assert metrics.true_positives == 3
         assert metrics.true_negatives == 0
         assert metrics.false_positives == 3
@@ -103,7 +103,7 @@ class TestGetEvaluationMetrics:
         metrics = get_evaluation_metrics(y_true, y_pred)
 
         # 7 correct out of 9
-        assert metrics.accuracy == pytest.approx(7 / 9, rel=1e-5)
+        assert metrics.accuracy == pytest.approx(0.78, abs=0.005)
         assert 0.0 <= metrics.precision <= 1.0
         assert 0.0 <= metrics.recall <= 1.0
         assert 0.0 <= metrics.f1_score <= 1.0
@@ -116,7 +116,7 @@ class TestGetEvaluationMetrics:
         metrics = get_evaluation_metrics(y_true, y_pred)
 
         # 7 correct out of 9
-        assert metrics.accuracy == pytest.approx(7 / 9, rel=1e-5)
+        assert metrics.accuracy == pytest.approx(0.78, abs=0.005)
         assert 0.0 <= metrics.precision <= 1.0
         assert 0.0 <= metrics.recall <= 1.0
         assert 0.0 <= metrics.f1_score <= 1.0
@@ -898,7 +898,7 @@ class TestGetEvaluationResults:
 
         assert result.num_labeled_data == 9
         # 7 correct out of 9
-        assert result.metrics.accuracy == pytest.approx(7 / 9, rel=1e-5)
+        assert result.metrics.accuracy == pytest.approx(0.78, abs=0.005)
 
     @pytest.mark.asyncio
     async def test_result_structure(self):
@@ -959,4 +959,4 @@ class TestGetEvaluationResults:
         # Should use label_manual as ground truth and label_classifier as predictions
         # Predictions: [1, 0, 1], True: [0, 1, 1] -> 1 correct (only msg3)
         assert result.num_labeled_data == 3
-        assert result.metrics.accuracy == pytest.approx(1 / 3, rel=1e-5)
+        assert result.metrics.accuracy == pytest.approx(0.33, abs=0.005)

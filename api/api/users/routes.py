@@ -2,10 +2,6 @@ import logging
 from datetime import timedelta
 from typing import Optional, Tuple
 
-from elasticsearch.dsl import Q
-from elasticsearch.dsl.query import Query as ESQuery
-from fastapi import APIRouter, Depends, HTTPException, status
-
 from api.accounts.auth import (
     get_current_active_verified_superuser,
     get_current_active_verified_user,
@@ -14,6 +10,7 @@ from api.accounts.models import AccountRead
 from api.database import get_database
 from api.database.aggregations import aggregate_metrics
 from api.database.database import Database
+from api.database.utils import collect_storage_refs
 from api.fulltext_search import create_highlight_config
 from api.pagination import PaginatedResponse, PaginatedUsers, Pagination
 from api.sort_config import UserSortOptions
@@ -25,6 +22,10 @@ from api.users.validators import (
     parse_user_sort,
 )
 from api.validators import FieldFilter, SortParams, parse_fields_params
+from elasticsearch.dsl import Q
+from elasticsearch.dsl.query import Query as ESQuery
+from fastapi import APIRouter, Depends, HTTPException, status
+
 from common.database.models.user import UserMetrics, UserOut
 from common.storage import Storage
 from common.utils import naive_utcnow
@@ -199,59 +200,10 @@ def get_users_router(app) -> APIRouter:
 
         try:
             # First, collect all storage references from user's messages before deletion
-            storage_refs_to_check = set()
-
-            # Use scroll API to get all messages from this user (no size limit)
-            search_body = {
-                "query": {"term": {"from_user.id": id}},
-                "_source": ["attachment.storage_refs"],
-                "size": 1000,  # Batch size for scroll
-            }
-
-            # Initialize scroll
-            messages_response = await database.es_client.search(
-                index="messages",
-                body=search_body,
-                scroll="1m",  # Keep scroll context for 1 minute
-            )
-
-            scroll_id = messages_response.get("_scroll_id")
-
-            # Process first batch and subsequent batches
-            while True:
-                hits = messages_response.get("hits", {}).get("hits", [])
-
-                if not hits:
-                    break
-
-                # Extract storage references from this batch
-                for hit in hits:
-                    source = hit.get("_source", {})
-                    attachment = source.get("attachment", {})
-                    storage_refs = attachment.get("storage_refs", [])
-
-                    for ref in storage_refs:
-                        if "bucket" in ref and "object" in ref:
-                            storage_refs_to_check.add((ref["bucket"], ref["object"]))
-
-                # Get next batch
-                try:
-                    messages_response = await database.es_client.scroll(
-                        scroll_id=scroll_id, scroll="1m"
-                    )
-                except Exception as scroll_error:
-                    logger.error(f"Scroll error: {scroll_error}", exc_info=True)
-                    break
-
-            # Clean up scroll context
-            if scroll_id:
-                try:
-                    await database.es_client.clear_scroll(scroll_id=scroll_id)
-                except Exception:
-                    pass  # Ignore cleanup errors
-
-            logger.info(
-                f"Found {len(storage_refs_to_check)} unique storage objects to check for cleanup"
+            storage_refs_to_check = await collect_storage_refs(
+                database.es_client,
+                "messages",
+                {"term": {"from_user.id": id}},
             )
 
             # Delete all messages from this user

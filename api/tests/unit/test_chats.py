@@ -523,266 +523,221 @@ class TestChatSorting:
 
 
 class TestChatDeletion:
-    """Test cases for chat deletion functions."""
+    """Test cases for the delete_chat_data function."""
 
     @pytest.mark.asyncio
-    async def test_delete_chats(self, mock_database):
-        """Test deleting chat records from the chats index."""
-        from api.chats.deletion import delete_chats
-
-        mock_database.chats.delete_by_query = AsyncMock(return_value=3)
-
-        chat_ids = [123, 456, 789]
-        deleted_count = await delete_chats(mock_database, chat_ids)
-
-        assert deleted_count == 3
-        mock_database.chats.delete_by_query.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_delete_message_indices(self, mock_database):
-        """Test deleting message indices for specific chats."""
-        from api.chats.deletion import delete_message_indices
-
-        mock_database.es_client.indices.delete = AsyncMock()
-
-        chat_ids = [123, 456]
-        deleted_count, error = await delete_message_indices(mock_database, chat_ids)
-
-        assert deleted_count == 2
-        assert error is None
-        mock_database.es_client.indices.delete.assert_called_once_with(
-            index=["messages_123", "messages_456"],
-            ignore_unavailable=True,
-            allow_no_indices=True,
-        )
-
-    @pytest.mark.asyncio
-    async def test_delete_message_indices_error(self, mock_database):
-        """Test error handling when deleting message indices fails."""
-        from api.chats.deletion import delete_message_indices
-
-        mock_database.es_client.indices.delete = AsyncMock(
-            side_effect=Exception("Deletion failed")
-        )
-
-        chat_ids = [123]
-        deleted_count, error = await delete_message_indices(mock_database, chat_ids)
-
-        assert deleted_count == 0
-        assert error is not None
-        assert "See server logs for details" in error
-
-    @pytest.mark.asyncio
-    async def test_delete_metrics(self, mock_database):
-        """Test deleting metrics associated with chats."""
-        from api.chats.deletion import delete_chat_metrics
-
-        mock_database.metrics.delete_by_query = AsyncMock(return_value=10)
-
-        chat_ids = [123, 456]
-        deleted_count, error = await delete_chat_metrics(mock_database, chat_ids)
-
-        assert deleted_count == 10
-        assert error is None
-        mock_database.metrics.delete_by_query.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_delete_metrics_error(self, mock_database):
-        """Test error handling when deleting metrics fails."""
-        from api.chats.deletion import delete_chat_metrics
-
-        mock_database.metrics.delete_by_query = AsyncMock(
-            side_effect=Exception("Metrics deletion failed")
-        )
-
-        chat_ids = [123]
-        deleted_count, error = await delete_chat_metrics(mock_database, chat_ids)
-
-        assert deleted_count == 0
-        assert error is not None
-        assert "See server logs for details" in error
-
-    @pytest.mark.asyncio
-    async def test_clear_vectorized_indices(self, mock_database):
-        """Test clearing vectorized message indices."""
-        from api.chats.deletion import clear_vectorized_indices
-
-        mock_database.es_client.indices.delete = AsyncMock()
-
-        chat_ids = [123, 456]
-        deleted_count, error = await clear_vectorized_indices(mock_database, chat_ids)
-
-        assert deleted_count == 2
-        assert error is None
-        mock_database.es_client.indices.delete.assert_called_once_with(
-            index=["vectorized_messages_123", "vectorized_messages_456"],
-            ignore_unavailable=True,
-            allow_no_indices=True,
-        )
-
-    @pytest.mark.asyncio
-    async def test_clear_vectorized_indices_error(self, mock_database):
-        """Test error handling when clearing vectorized indices fails."""
-        from api.chats.deletion import clear_vectorized_indices
-
-        mock_database.es_client.indices.delete = AsyncMock(
-            side_effect=Exception("Vectorized deletion failed")
-        )
-
-        chat_ids = [123]
-        deleted_count, error = await clear_vectorized_indices(mock_database, chat_ids)
-
-        assert deleted_count == 0
-        assert error is not None
-        assert "See server logs for details" in error
-
-    @pytest.mark.asyncio
-    async def test_collect_storage_refs_from_chats(self, mock_database):
-        """Test collecting storage references from chat messages."""
-        from api.chats.deletion import collect_storage_refs_from_chats
-
-        # Mock index exists check
-        mock_database.es_client.indices.exists = AsyncMock(return_value=True)
-
-        # Mock scroll search response
-        mock_database.es_client.search = AsyncMock(
-            return_value={
-                "_scroll_id": "scroll123",
-                "hits": {
-                    "hits": [
-                        {
-                            "_source": {
-                                "attachment": {
-                                    "storage_refs": [
-                                        {"bucket": "photos", "object": "photo1.jpg"},
-                                        {"bucket": "videos", "object": "video1.mp4"},
-                                    ]
-                                }
-                            }
-                        }
-                    ]
-                },
-            }
-        )
-
-        # Mock scroll continuation (empty results to end loop)
-        mock_database.es_client.scroll = AsyncMock(return_value={"hits": {"hits": []}})
-
-        mock_database.es_client.clear_scroll = AsyncMock()
-
-        chat_ids = [123]
-        storage_refs = await collect_storage_refs_from_chats(mock_database, chat_ids)
-
-        assert len(storage_refs) == 2
-        assert ("photos", "photo1.jpg") in storage_refs
-        assert ("videos", "video1.mp4") in storage_refs
-
-    @pytest.mark.asyncio
-    async def test_collect_storage_refs_nonexistent_index(self, mock_database):
-        """Test collecting storage refs when index doesn't exist."""
-        from api.chats.deletion import collect_storage_refs_from_chats
-
-        # Mock index does not exist
-        mock_database.es_client.indices.exists = AsyncMock(return_value=False)
-
-        chat_ids = [999]
-        storage_refs = await collect_storage_refs_from_chats(mock_database, chat_ids)
-
-        assert len(storage_refs) == 0
-
-    @pytest.mark.asyncio
-    async def test_delete_chats_data_without_storage(self, mock_database):
+    async def test_delete_chat_data_without_storage(self, mock_database):
         """Test complete chat deletion without storage cleanup."""
-        from api.chats.deletion import delete_chats_data
+        from api.chats.delete_chat_data import delete_chat_data
 
-        # Mock all deletion methods
-        mock_database.chats.delete_by_query = AsyncMock(return_value=2)
+        mock_database.chats.delete_by_query = AsyncMock(return_value=1)
         mock_database.metrics.delete_by_query = AsyncMock(return_value=5)
         mock_database.es_client.indices.delete = AsyncMock()
         mock_database.es_client.indices.exists = AsyncMock(return_value=False)
 
-        chat_ids = [123, 456]
-        stats = await delete_chats_data(mock_database, chat_ids, storage=None)
+        deleted_storage_objects, errors = await delete_chat_data(
+            mock_database, 123, storage=None
+        )
 
-        assert stats.deleted_chats == 2
-        assert stats.deleted_message_indices == 2
-        assert stats.deleted_metrics == 5
-        assert stats.deleted_vectorized_indices == 2
-        assert stats.deleted_storage_objects == 0
-        assert len(stats.errors) == 0
+        assert deleted_storage_objects == 0
+        assert len(errors) == 0
+        mock_database.chats.delete_by_query.assert_called_once()
+        assert mock_database.es_client.indices.delete.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_delete_chats_data_with_storage(self, mock_database):
+    async def test_delete_chat_data_with_storage(self, mock_database):
         """Test complete chat deletion with storage cleanup."""
         from unittest.mock import Mock
 
-        from api.chats.deletion import delete_chats_data
+        from api.chats.delete_chat_data import delete_chat_data
 
-        # Create mock storage
         mock_storage = Mock()
         mock_storage.cleanup_orphaned_objects = AsyncMock(return_value=(3, None))
 
-        # Mock all deletion methods
-        mock_database.chats.delete_by_query = AsyncMock(return_value=2)
+        mock_database.chats.delete_by_query = AsyncMock(return_value=1)
         mock_database.metrics.delete_by_query = AsyncMock(return_value=5)
         mock_database.es_client.indices.delete = AsyncMock()
-        mock_database.es_client.indices.exists = AsyncMock(return_value=True)
-        mock_database.es_client.search = AsyncMock(
-            return_value={
-                "_scroll_id": "scroll123",
-                "hits": {
-                    "hits": [
-                        {
-                            "_source": {
-                                "attachment": {
-                                    "storage_refs": [
-                                        {"bucket": "photos", "object": "photo1.jpg"}
-                                    ]
-                                }
-                            }
-                        }
-                    ]
-                },
-            }
+
+        storage_refs = {("photos", "photo1.jpg"), ("photos", "photo2.jpg")}
+        with patch(
+            "api.chats.delete_chat_data.collect_storage_refs",
+            new_callable=AsyncMock,
+            return_value=storage_refs,
+        ) as mock_collect:
+            deleted_storage_objects, errors = await delete_chat_data(
+                mock_database, 123, storage=mock_storage
+            )
+
+        mock_collect.assert_awaited_once_with(
+            mock_database.es_client,
+            "messages_123",
+            {"exists": {"field": "attachment.storage_refs"}},
         )
-        mock_database.es_client.scroll = AsyncMock(return_value={"hits": {"hits": []}})
-        mock_database.es_client.clear_scroll = AsyncMock()
-
-        chat_ids = [123, 456]
-        stats = await delete_chats_data(mock_database, chat_ids, storage=mock_storage)
-
-        assert stats.deleted_chats == 2
-        assert stats.deleted_storage_objects == 3
+        assert deleted_storage_objects == 3
+        assert len(errors) == 0
         mock_storage.cleanup_orphaned_objects.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_delete_chats_data_empty_list(self, mock_database):
-        """Test deletion with empty chat ID list."""
-        from api.chats.deletion import delete_chats_data
+    async def test_delete_chat_data_with_errors(self, mock_database):
+        """Test deletion handles non-critical errors gracefully."""
+        from api.chats.delete_chat_data import delete_chat_data
 
-        stats = await delete_chats_data(mock_database, [], storage=None)
-
-        assert stats.deleted_chats == 0
-        assert stats.deleted_message_indices == 0
-        assert len(stats.errors) == 0
-
-    @pytest.mark.asyncio
-    async def test_delete_chats_data_with_errors(self, mock_database):
-        """Test deletion handles errors gracefully."""
-        from api.chats.deletion import delete_chats_data
-
-        # Mock chat deletion to succeed but metrics to fail
-        mock_database.chats.delete_by_query = AsyncMock(return_value=2)
+        mock_database.chats.delete_by_query = AsyncMock(return_value=1)
         mock_database.metrics.delete_by_query = AsyncMock(
             side_effect=Exception("Metrics error")
         )
         mock_database.es_client.indices.delete = AsyncMock()
         mock_database.es_client.indices.exists = AsyncMock(return_value=False)
 
-        chat_ids = [123, 456]
-        stats = await delete_chats_data(mock_database, chat_ids, storage=None)
+        deleted_storage_objects, errors = await delete_chat_data(
+            mock_database, 123, storage=None
+        )
 
-        assert stats.deleted_chats == 2
-        assert stats.deleted_metrics == 0
-        assert len(stats.errors) > 0
-        assert any("See server logs for details" in error for error in stats.errors)
+        assert deleted_storage_objects == 0
+        assert len(errors) > 0
+        assert any("metrics" in error.lower() for error in errors)
+
+    @pytest.mark.asyncio
+    async def test_delete_chat_data_no_storage_refs(self, mock_database):
+        """Test that storage cleanup is skipped when collect_storage_refs returns nothing."""
+        from unittest.mock import Mock
+
+        from api.chats.delete_chat_data import delete_chat_data
+
+        mock_storage = Mock()
+        mock_storage.cleanup_orphaned_objects = AsyncMock(return_value=(0, None))
+
+        mock_database.chats.delete_by_query = AsyncMock(return_value=1)
+        mock_database.metrics.delete_by_query = AsyncMock(return_value=0)
+        mock_database.es_client.indices.delete = AsyncMock()
+
+        with patch(
+            "api.chats.delete_chat_data.collect_storage_refs",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ):
+            deleted_storage_objects, errors = await delete_chat_data(
+                mock_database, 999, storage=mock_storage
+            )
+
+        assert deleted_storage_objects == 0
+        mock_storage.cleanup_orphaned_objects.assert_not_called()
+
+
+class TestLeaveChat:
+    """Test cases for the leave_chat function."""
+
+    @pytest.mark.asyncio
+    async def test_leave_chat_no_clients(self, mock_database):
+        """Test leave_chat returns empty list when no clients are found for the chat."""
+        from api.chats.leave_chat import leave_chat
+
+        with patch(
+            "api.chats.leave_chat.find_clients_for_chat",
+            new_callable=AsyncMock,
+            return_value=[],
+        ):
+            results = await leave_chat(mock_database, 123)
+
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_leave_chat_success(self, mock_database, sample_client):
+        """Test leave_chat returns success when client leaves successfully."""
+        from api.chats.leave_chat import leave_chat
+        from api.chats.models import LeaveChatResult
+
+        with patch(
+            "api.chats.leave_chat.find_clients_for_chat",
+            new_callable=AsyncMock,
+            return_value=[sample_client],
+        ):
+            with patch(
+                "api.chats.leave_chat.leave_chat_via_pyrogram",
+                new_callable=AsyncMock,
+                return_value=LeaveChatResult(client_id=sample_client.id, success=True),
+            ):
+                results = await leave_chat(mock_database, 123)
+
+        assert len(results) == 1
+        assert results[0].success is True
+
+    @pytest.mark.asyncio
+    async def test_leave_chat_not_member_is_success(self, mock_database, sample_client):
+        """Test that 'not a member' errors are treated as success."""
+        from api.chats.leave_chat import leave_chat
+        from api.chats.models import LeaveChatResult
+
+        with patch(
+            "api.chats.leave_chat.find_clients_for_chat",
+            new_callable=AsyncMock,
+            return_value=[sample_client],
+        ):
+            with patch(
+                "api.chats.leave_chat.leave_chat_via_pyrogram",
+                new_callable=AsyncMock,
+                return_value=LeaveChatResult(
+                    client_id=sample_client.id,
+                    success=True,
+                    message="Already not a member",
+                ),
+            ):
+                results = await leave_chat(mock_database, 123)
+
+        assert len(results) == 1
+        assert results[0].success is True
+
+    @pytest.mark.asyncio
+    async def test_leave_chat_active_client_failure_raises(self, mock_database, sample_client):
+        """Test that a failure from an active client raises an exception."""
+        from api.chats.leave_chat import leave_chat
+        from api.chats.models import LeaveChatResult
+
+        sample_client.is_active = True
+
+        with patch(
+            "api.chats.leave_chat.find_clients_for_chat",
+            new_callable=AsyncMock,
+            return_value=[sample_client],
+        ):
+            with patch(
+                "api.chats.leave_chat.leave_chat_via_pyrogram",
+                new_callable=AsyncMock,
+                return_value=LeaveChatResult(
+                    client_id=sample_client.id,
+                    success=False,
+                    message="Connection error",
+                ),
+            ):
+                with pytest.raises(Exception, match=sample_client.id):
+                    await leave_chat(mock_database, 123)
+
+    @pytest.mark.asyncio
+    async def test_leave_chat_inactive_client_failure_continues_with_warning(
+        self, mock_database, sample_client
+    ):
+        """Test that a failure from an inactive client continues and adds a warning message."""
+        from api.chats.leave_chat import leave_chat
+        from api.chats.models import LeaveChatResult
+
+        sample_client.is_active = False
+
+        with patch(
+            "api.chats.leave_chat.find_clients_for_chat",
+            new_callable=AsyncMock,
+            return_value=[sample_client],
+        ):
+            with patch(
+                "api.chats.leave_chat.leave_chat_via_pyrogram",
+                new_callable=AsyncMock,
+                return_value=LeaveChatResult(
+                    client_id=sample_client.id,
+                    success=False,
+                    message="Connection error",
+                ),
+            ):
+                results = await leave_chat(mock_database, 123)
+
+        assert len(results) == 1
+        assert results[0].success is False
+        assert "inactive" in results[0].message.lower()

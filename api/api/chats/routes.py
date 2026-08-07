@@ -1,18 +1,14 @@
 import logging
 from typing import Optional, Tuple
 
-from elasticsearch.dsl import Q
-from elasticsearch.dsl.query import Query as ESQuery
-from elasticsearch.exceptions import NotFoundError
-from fastapi import APIRouter, Depends, HTTPException, status
-
 from api.accounts.auth import Account, get_current_active_verified_user
-from api.chats.deletion import delete_chats_data
+from api.chats.delete_chat_data import delete_chat_data
+from api.chats.leave_chat import leave_chat
 from api.chats.models import (
     ChatSearchField,
     ChatStats,
     ChatStatsFields,
-    DeleteChatsRequest,
+    DeleteChatResponse,
 )
 from api.chats.validators import (
     parse_chat_filter,
@@ -28,6 +24,11 @@ from api.pagination import PaginatedChats, PaginatedResponse, Pagination
 from api.sort_config import ChatSortOptions
 from api.storage import get_storage
 from api.validators import FieldFilter, SortParams, parse_fields_params
+from elasticsearch.dsl import Q
+from elasticsearch.dsl.query import Query as ESQuery
+from elasticsearch.exceptions import NotFoundError
+from fastapi import APIRouter, Depends, HTTPException, status
+
 from common.database.models.chat import ChatIn, ChatMetrics, ChatOut
 from common.storage import Storage
 
@@ -248,108 +249,87 @@ def get_chats_router(app) -> APIRouter:
             )
 
     @router.delete(
-        "/chats",
-        response_description="Delete multiple chats and their related data",
-        description=(
-            "⚠️ WARNING: Ensure clients have left these chats before deletion, "
-            "or scraping will automatically restart. This deletes chat records, "
-            "message indices, metrics, vectorized indices and, if requested, "
-            "storage objects (attachments)."
-        ),
+        "/chats/{id}",
+        response_description="Leave and/or delete a chat and its data",
         tags=["chats"],
+        response_model=DeleteChatResponse,
+        response_model_exclude_none=True,
         status_code=status.HTTP_200_OK,
     )
-    async def delete_chats(
-        request: DeleteChatsRequest,
+    async def delete_chat(
+        id: int,
+        leave: bool = False,
+        delete: bool = False,
+        attachments: bool = False,
         account: Account = Depends(current_active_verified_user),
         database: Database = Depends(get_database),
         storage: Storage = Depends(get_storage),
-    ) -> dict:
+    ) -> DeleteChatResponse:
         """
-        Delete multiple chats and all their related data.
+        Leave and/or delete a single chat and its related data.
 
-        This deletion is useful for:
-        - Starting over with a chat after scraping issues (use delete_attachments=False)
-        - Cleaning up data for chats that are no longer being monitored
+        - `leave`: Leave the chat in Telegram
+        - `delete`: Delete all chat data (record, messages, metrics, vectorized index)
+        - `attachments`: Also delete attachment files from storage — requires `delete=true`
 
-        ⚠️ IMPORTANT WARNINGS:
-        - Ensure no active scraping is happening for these chats during deletion
-          to avoid data inconsistencies and race conditions
-        - If the client is still a member of these chats, scraping will automatically
-          restart. Use the client management endpoints to leave chats first for
-          permanent deletion.
-        - Only use delete_attachments=True when permanently removing chats where
-          clients have left. For restarting scraping, use delete_attachments=False
-          (default) to avoid potential data loss from race conditions.
+        Leave is always performed before deletion to prevent new data arriving
+        during the deletion process.
 
-        This operation deletes:
-        - Chat records from the chats index
-        - Message indices for each chat (messages_{chat_id})
-        - Metrics associated with the chats
-        - Vectorized message indices (vectorized_messages_{chat_id}) if they exist
-        - Storage objects (attachments) if delete_attachments=True
-
-        Args:
-            request: DeleteChatsRequest containing chat_ids and delete_attachments flag
-
-        Returns:
-            Deletion statistics including counts of deleted resources
-            and any errors
+        Attachment deletion: after the chat's messages are removed, any storage file
+        that is no longer referenced by any message in the database is deleted. This
+        means files shared with other chats (e.g. via forwarding) are kept, but files
+        exclusively used by this chat are removed.
         """
-        # Verify that at least some of the chats exist (single query for efficiency)
-        existing_chats_query = Q("ids", values=request.chat_ids)
-        existing_chat_docs = [
-            chat async for chat in database.chats.find(filter=existing_chats_query)
-        ]
-        existing_chats = [chat.id for chat in existing_chat_docs]
+        if attachments and not delete:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="attachments=true requires delete=true",
+            )
+        if not leave and not delete:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="At least one of leave or delete must be true",
+            )
 
-        if not existing_chats:
+        chat = await database.chats.find_one(filter=Q("ids", values=[id]))
+        if not chat:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"None of the specified chats were found: {request.chat_ids}",
+                detail=f"Chat with ID {id} not found",
             )
 
-        # Perform deletion
-        try:
-            stats = await delete_chats_data(
-                database,
-                existing_chats,
-                storage if request.delete_attachments else None,
-            )
+        leave_results = None
 
-            response = {
-                "message": f"Successfully deleted {stats.deleted_chats} chats",
-                "warning": (
-                    "⚠️ If the client is still a member of these chats, scraping "
-                    "will automatically restart. Use the client management endpoints "
-                    "to leave the chats first to permanently stop scraping."
-                ),
-                "deleted_chats": stats.deleted_chats,
-                "processed_message_indices": stats.deleted_message_indices,
-                "deleted_metrics": stats.deleted_metrics,
-                "processed_vectorized_indices": stats.deleted_vectorized_indices,
-                "deleted_storage_objects": stats.deleted_storage_objects,
-            }
-
-            if stats.errors:
-                response["errors"] = stats.errors
-                response["message"] += " (with some errors)"
-
-            # Include info about chats that weren't found
-            not_found = [cid for cid in request.chat_ids if cid not in existing_chats]
-            if not_found:
-                response["not_found"] = not_found
-                response["message"] += (
-                    f". {len(not_found)} chat(s) not found: {not_found}"
+        # 1. Leave first — prevents new data from arriving during deletion
+        if leave:
+            try:
+                leave_results = await leave_chat(database, id)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=str(e),
                 )
 
-            return response
+        # 2. Delete data
+        deleted_storage_objects: int | None = None
+        errors: list[str] | None = None
+        if delete:
+            try:
+                deleted_storage_objects, errors = await delete_chat_data(
+                    database,
+                    id,
+                    storage if attachments else None,
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to delete chat data: {str(e)}",
+                )
 
-        except Exception as e:
-            logger.error(f"Error deleting chats {existing_chats}: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to delete chats: {str(e)}",
-            )
+        return DeleteChatResponse(
+            leave_results=leave_results,
+            deleted_storage_objects=deleted_storage_objects,
+            errors=errors if errors else None,
+        )
 
     return router

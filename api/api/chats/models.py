@@ -1,9 +1,8 @@
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel
-
 from api.database.database import StatsEntry
+from pydantic import BaseModel
 
 
 class ChatSearchField(str, Enum):
@@ -19,19 +18,17 @@ class ChatStats(BaseModel):
     tags: Optional[List[StatsEntry]] = None
 
 
-class ChatDeletionStats(BaseModel):
-    """Statistics from chat deletion operation."""
+class LeaveChatResult(BaseModel):
+    """Result of leaving a chat for a single client."""
 
-    deleted_chats: int = 0
-    deleted_message_indices: int = 0
-    deleted_metrics: int = 0
-    deleted_vectorized_indices: int = 0
-    deleted_storage_objects: int = 0
-    errors: List[str] = []
+    client_id: str
+    success: bool
+    message: Optional[str] = None
 
 
-class DeleteChatsRequest(BaseModel):
-    """Request body for deleting multiple chats."""
+class DeleteChatResponse(BaseModel):
+    """Response for the delete chat endpoint."""
 
-    chat_ids: List[int]
-    delete_attachments: bool = False
+    leave_results: Optional[List[LeaveChatResult]] = None
+    deleted_storage_objects: Optional[int] = None
+    errors: Optional[List[str]] = None
